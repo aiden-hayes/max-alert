@@ -267,7 +267,7 @@ def test_old_cache_without_nutrition_is_rebuilt(live_store):
         "source": "live", "last_attempt": menu_store.campus_now().isoformat(), "last_error": None}))
     store = menu_store.MenuStore(fetch=lambda loc, day: FIXTURE)
     assert store.is_stale()
-    store.ensure_fresh()  # blocking refresh
+    store.refresh()
     snap = store.snapshot()
     assert snap["schema"] == menu_store.SCHEMA_VERSION and not store.is_stale()
     first_day = snap["days"][min(snap["days"])]["the-max"]

@@ -153,13 +153,23 @@ class MenuStore:
             log.info("Menu refresh OK (%d location-days)", ok)
 
     def ensure_fresh(self) -> None:
-        """Refresh in the background if stale; block only if we have nothing at all."""
+        """Refresh in the background if stale. Only demo data (instant, no network) blocks:
+        a slow Sodexo response must never hold up a page request past the server's timeout."""
         if not self.is_stale():
             return
-        if self._mismatch() or not self.data.get("days"):
+        if self.mode() == "demo" and (self._mismatch() or not self.data.get("days")):
             self.refresh()
-        else:
-            threading.Thread(target=self.refresh, daemon=True).start()
+        elif not self._refreshing.is_set():
+            # Set before the thread starts so this response already says "refreshing"
+            # and the page keeps polling instead of showing "No menu data yet".
+            self._refreshing.set()
+            threading.Thread(target=self._refresh_in_background, daemon=True).start()
+
+    def _refresh_in_background(self) -> None:
+        try:
+            self._do_refresh()
+        finally:
+            self._refreshing.clear()
 
     def snapshot(self) -> dict:
         with self._lock:
