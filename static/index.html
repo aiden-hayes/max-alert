@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b2545">
+  <title>Max Alert</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-row">
+      <div>
+        <h1><button type="button" class="home" data-view="menu">Max Alert</button></h1>
+        <p class="sub" id="updated">Loading menus…</p>
+      </div>
+      <div id="acct" class="acct"></div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="menuView">
+      <div id="banners"></div>
+
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search this week (e.g. chicken)" autocomplete="off" aria-label="Search menus this week">
+      </label>
+
+      <section id="browse">
+        <div id="hero" class="hero" hidden></div>
+
+        <div class="chips scroll" id="dates" role="tablist" aria-label="Date"></div>
+        <div class="tabs" id="meals" role="tablist" aria-label="Meal"></div>
+
+        <div class="row">
+          <select id="location" aria-label="Location" hidden></select>
+          <button id="good" class="good" type="button">Anything good?</button>
+        </div>
+        <div id="ai" class="ai" hidden></div>
+      </section>
+
+      <div class="chips" id="diets" aria-label="Dietary filters"></div>
+
+      <div id="content" aria-live="polite"></div>
+    </div>
+
+    <div id="caloriesView" hidden></div>
+    <div id="settingsView" hidden></div>
+  </main>
+
+  <footer class="wrap foot">
+    Menus and nutrition from GCSU Dining (Sodexo). Nutrition values are estimates. Always check posted allergen info before eating.
+  </footer>
+
+  <!-- Build Your Plate -->
+  <div id="plateBar" class="plate-bar" hidden></div>
+  <div id="backdrop" class="backdrop" hidden></div>
+  <div id="sheet" class="sheet" role="dialog" aria-modal="true" aria-label="My Plate" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <dialog id="quickAdd" class="quick">
+    <form>
+      <h2>Quick add</h2>
+      <p class="muted">For anything not on the menu, like a C-store snack or a drink.</p>
+      <label>Name <input name="name" maxlength="120" placeholder="e.g. Gatorade" required></label>
+      <label>Calories <input name="calories" type="number" inputmode="decimal" min="0" max="5000" step="any" required></label>
+      <div class="q-macros">
+        <label>Protein (g) <input name="protein_g" type="number" inputmode="decimal" min="0" max="500" step="any" placeholder="optional"></label>
+        <label>Carbs (g) <input name="carbs_g" type="number" inputmode="decimal" min="0" max="500" step="any" placeholder="optional"></label>
+        <label>Fat (g) <input name="fat_g" type="number" inputmode="decimal" min="0" max="500" step="any" placeholder="optional"></label>
+      </div>
+      <p class="q-err"></p>
+      <div class="p-actions">
+        <button type="button" class="ghost" data-q="cancel">Cancel</button>
+        <button type="submit" class="primary">Add to plate</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="authDialog" class="quick">
+    <form novalidate>
+      <div class="auth-tabs" role="tablist">
+        <button type="button" role="tab" data-mode="login">Log in</button>
+        <button type="button" role="tab" data-mode="signup">Sign up</button>
+      </div>
+      <p class="auth-reason muted" hidden></p>
+      <label>Email <input name="email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <small class="auth-hint muted"></small>
+      <label class="confirm-row" hidden>Confirm password <input name="confirm" type="password" autocomplete="new-password"></label>
+      <p class="q-err" role="alert"></p>
+      <div class="p-actions">
+        <button type="button" class="ghost" data-auth="cancel">Not now</button>
+        <button type="submit" class="primary">Log in</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="importDialog" class="quick">
+    <h2>Bring over your old log?</h2>
+    <p class="import-text"></p>
+    <p class="q-err" role="alert"></p>
+    <div class="p-actions">
+      <button type="button" class="ghost" data-import="no">No thanks</button>
+      <button type="button" class="primary" data-import="yes">Import</button>
+    </div>
+  </dialog>
+
+  <script src="/static/account.js"></script>
+  <script src="/static/plate.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

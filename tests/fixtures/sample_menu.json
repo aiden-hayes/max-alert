@@ -1,0 +1,108 @@
+[
+  {
+    "name": "Breakfast",
+    "groups": [
+      {
+        "name": "Bliss",
+        "items": [
+          {
+            "course": "Bliss",
+            "meal": "Breakfast",
+            "formalName": "Raspberry White Chocolate Scone",
+            "isVegan": false,
+            "isVegetarian": false,
+            "isPlantBased": false,
+            "isMindful": false,
+            "calories": "264",
+            "carbohydrates": "35g",
+            "protein": "4g",
+            "fat": "12",
+            "portion": "Scone"
+          }
+        ]
+      },
+      {
+        "name": "Spoonful",
+        "items": [
+          {
+            "course": "Spoonful",
+            "meal": "Breakfast",
+            "formalName": "Have a Nice Day",
+            "ingredients": "Plate Cost Peripherals",
+            "isVegan": false,
+            "isVegetarian": false,
+            "isPlantBased": false,
+            "isMindful": false,
+            "calories": "",
+            "carbohydrates": "0",
+            "protein": "",
+            "fat": "0",
+            "portion": "EA"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Lunch",
+    "groups": [
+      {
+        "name": "Slices",
+        "items": [
+          {
+            "course": "Slices",
+            "meal": "Lunch",
+            "formalName": "Cheese Pizza",
+            "isVegan": false,
+            "isVegetarian": false,
+            "isPlantBased": false,
+            "isMindful": false,
+            "calories": "219",
+            "carbohydrates": "28g",
+            "protein": "10g",
+            "fat": "7",
+            "portion": "SLC=1/8"
+          },
+          {
+            "course": "Slices",
+            "meal": "Lunch",
+            "formalName": "Lasagna Pizza",
+            "isVegan": false,
+            "isVegetarian": false,
+            "isPlantBased": false,
+            "isMindful": false,
+            "calories": "348",
+            "carbohydrates": "30g",
+            "protein": "21g",
+            "fat": "16",
+            "portion": "SLC=1/8"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Dinner",
+    "groups": [
+      {
+        "name": "Slices",
+        "items": [
+          {
+            "course": "Slices",
+            "meal": "Dinner",
+            "formalName": "Feta Bruschetta Pizza",
+            "isVegan": false,
+            "isVegetarian": true,
+            "isPlantBased": false,
+            "isMindful": false,
+            "calories": "254",
+            "carbohydrates": "31g",
+            "protein": "12g",
+            "fat": "9",
+            "portion": "SLC=1/8"
+          }
+        ]
+      }
+    ]
+  }
+]
