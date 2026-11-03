@@ -112,6 +112,27 @@ def _allergens(item: dict) -> list[str]:
     return sorted(set(out))
 
 
+def station_name(raw) -> str:
+    name = clean(raw) or "Other"
+    renames = {k.casefold(): v for k, v in config.STATION_NAMES.items()}
+    return renames.get(name.casefold(), name)
+
+
+def sort_stations(stations: list[dict]) -> list[dict]:
+    """STATIONS_FIRST at the top, STATIONS_LAST at the bottom, everything else in Sodexo's order."""
+    first = [n.casefold() for n in config.STATIONS_FIRST]
+    last = [n.casefold() for n in config.STATIONS_LAST]
+
+    def key(st):
+        n = st["name"].casefold()
+        if n in first:
+            return (0, first.index(n))
+        if n in last:
+            return (2, last.index(n))
+        return (1, 0)
+    return sorted(stations, key=key)  # stable, so the middle keeps its order
+
+
 def normalize(raw_meals: list[dict]) -> list[dict]:
     meals = []
     for meal in raw_meals:
@@ -140,7 +161,7 @@ def normalize(raw_meals: list[dict]) -> list[dict]:
                     "allergens": _allergens(item),
                 })
             if items:
-                stations.append({"name": clean(group.get("name")) or "Other", "items": items})
+                stations.append({"name": station_name(group.get("name")), "items": items})
         if stations:
-            meals.append({"name": meal_name(meal.get("name")), "stations": stations})
+            meals.append({"name": meal_name(meal.get("name")), "stations": sort_stations(stations)})
     return meals

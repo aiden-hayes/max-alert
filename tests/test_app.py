@@ -409,3 +409,13 @@ def test_rediscover_only_returns_verified_changes(monkeypatch):
 
     good = set()  # nothing works (e.g. site down)
     assert discover.rediscover(locs, "stale-key", url) is None
+
+
+def test_stations_renamed_and_ordered():
+    names = ["Bliss", "Grown", "Mix", "Savory", "Showcase", "Simply 3", "Sizzle",
+             "Slices", "Spoonful", "STACKED", "Twists", "Ucook"]
+    raw = [{"name": "Lunch", "groups": [{"name": n, "items": [{"formalName": f"{n} item"}]} for n in names]}]
+    stations = [s["name"] for s in sodexo.normalize(raw)[0]["stations"]]
+    assert stations == ["Savory", "Main Grill Area", "Simply 3", "Slices",
+                        "Salad", "Sizzle", "Spoonful", "Sandwich Area", "Twists", "Ucook",
+                        "Vegetarian", "Dessert"]

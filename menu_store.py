@@ -29,7 +29,7 @@ log = logging.getLogger("max-alert")
 CACHE_FILE = config.DATA_DIR / "menu_cache.json"
 RETRY_AFTER_FAILURE_MIN = 15
 # Bump when the normalized item shape changes, so old caches get re-downloaded once.
-SCHEMA_VERSION = 2  # v2: added carbs_g / fat_g nutrition fields
+SCHEMA_VERSION = 3  # v2: added carbs_g / fat_g nutrition fields; v3: renamed/reordered stations
 
 
 def campus_now() -> dt.datetime:

@@ -120,6 +120,21 @@ def api_url() -> str:
     return sodexo_override().get("api_url") or SODEXO_API_URL
 
 
+# --- Station names and order -------------------------------------------------
+# Sodexo's station names -> what the site shows (matched ignoring capitals).
+STATION_NAMES = {
+    "Bliss": "Dessert",
+    "Grown": "Vegetarian",
+    "Showcase": "Main Grill Area",
+    "Stacked": "Sandwich Area",
+    "Mix": "Salad",
+}
+# Use the names shown on the site (after renaming). Stations in neither list
+# keep Sodexo's order, in between.
+STATIONS_FIRST = ["Savory", "Main Grill Area", "Simply 3", "Slices"]
+STATIONS_LAST = ["Vegetarian", "Dessert"]
+
+
 # --- Meal hours --------------------------------------------------------------
 # The menu API gives meal names but not times. These are The MAX's posted hours
 # (Fall 2025, frontpage.gcsu.edu). Update them if the schedule changes.
