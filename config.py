@@ -1,4 +1,6 @@
 """Settings for Max Alert. Most things can be overridden with environment variables (see .env.example)."""
+import datetime as dt
+import hashlib
 import json
 import os
 import secrets
@@ -51,6 +53,16 @@ REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "3"))
 REQUEST_TIMEOUT = 20
 PARALLEL_DOWNLOADS = 4              # be gentle with Sodexo's servers
 ATTEMPTS_PER_DOWNLOAD = 2
+# When every download fails, look the key/menu IDs up again at most this often.
+REDISCOVER_EVERY_HOURS = 6
+
+# --- Alerts when menus stop updating ----------------------------------------
+# Optional. A webhook that gets a short message when menus have failed to download
+# for ALERT_AFTER_HOURS, a daily reminder while it lasts, and a note when it's fixed.
+# Works with ntfy.sh (https://ntfy.sh/<your-topic>), Discord and Slack webhooks.
+ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
+ALERT_AFTER_HOURS = float(os.environ.get("ALERT_AFTER_HOURS", "12"))
+ALERT_REPEAT_HOURS = 24
 
 # Force demo data even if a key is set (handy for working on the UI offline).
 DEMO_MODE = os.environ.get("DEMO_MODE", "").lower() in {"1", "true", "yes"}
@@ -69,7 +81,43 @@ def load_locations() -> list[dict]:
     if not LOCATIONS_FILE.exists():
         return []
     locations = json.loads(LOCATIONS_FILE.read_text())
+    fixes = sodexo_override().get("locations", {})
+    locations = [{**loc, **fixes.get(loc.get("slug"), {})} for loc in locations]
     return [loc for loc in locations if loc.get("location_id") and loc.get("menu_id")]
+
+
+# --- Self-repair --------------------------------------------------------------
+# If Sodexo rotates its key or starts a new menu, the app looks the new values up
+# (discover.rediscover) and saves them here. They're only used while .env and
+# locations.json still hold the values they replaced: once you update those by
+# hand (or redeploy with new ones), this file is ignored.
+OVERRIDE_FILE = DATA_DIR / "sodexo_override.json"
+
+
+def _fingerprint() -> str:
+    loc_text = LOCATIONS_FILE.read_text() if LOCATIONS_FILE.exists() else ""
+    return hashlib.sha256(json.dumps([SODEXO_API_KEY, SODEXO_API_URL, loc_text]).encode()).hexdigest()
+
+
+def sodexo_override() -> dict:
+    try:
+        data = json.loads(OVERRIDE_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if data.get("fingerprint") == _fingerprint() else {}
+
+
+def save_sodexo_override(fix: dict) -> None:
+    data = {**fix, "fingerprint": _fingerprint(), "saved_at": dt.datetime.now(CAMPUS_TZ).isoformat()}
+    OVERRIDE_FILE.write_text(json.dumps(data, indent=2))
+
+
+def api_key() -> str:
+    return sodexo_override().get("api_key") or SODEXO_API_KEY
+
+
+def api_url() -> str:
+    return sodexo_override().get("api_url") or SODEXO_API_URL
 
 
 # --- Meal hours --------------------------------------------------------------

@@ -6,6 +6,11 @@
 - If a download fails, the old data for that day is kept and the error is
   reported to the frontend, which shows a friendly message + "last updated".
 - The disk copy means the last good menu survives a server restart.
+- Self-repair: if EVERY download fails (e.g. Sodexo rotated its key or started a
+  new menu ID), the store looks the values up again (discover.rediscover), and if
+  verified new ones work it saves them (config.save_sodexo_override) and retries.
+- Alerts: after ALERT_AFTER_HOURS of nothing but failures, alerts.send() is
+  called (then daily while it lasts), plus a note when menus come back.
 """
 from __future__ import annotations
 
@@ -15,6 +20,7 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+import alerts
 import config
 import demo_data
 import sodexo
@@ -34,9 +40,41 @@ def _iso(ts: dt.datetime | None) -> str | None:
     return ts.isoformat() if ts else None
 
 
+def _hours_since(iso: str | None, now: dt.datetime) -> float | None:
+    return (now - dt.datetime.fromisoformat(iso)).total_seconds() / 3600 if iso else None
+
+
+def stale_since(data: dict, now: dt.datetime | None = None) -> str | None:
+    """When menus stopped updating, if every refresh has failed for ALERT_AFTER_HOURS. Else None."""
+    since = data.get("failing_since")
+    if data.get("source") != "live" or not since:
+        return None
+    return since if _hours_since(since, now or campus_now()) >= config.ALERT_AFTER_HOURS else None
+
+
+def _rediscover():
+    import discover  # only needed when something's broken
+    return discover.rediscover(config.load_locations(), config.api_key(), config.api_url())
+
+
+def _describe_fix(fix: dict) -> str:
+    changed = []
+    if fix["api_key"] != config.api_key():
+        changed.append("API key")
+    if fix["api_url"] != config.api_url():
+        changed.append(f"API address (now {fix['api_url'].split('/data/')[0]})")
+    old = {l["slug"]: l for l in config.load_locations()}
+    for slug, ids in fix["locations"].items():
+        if old.get(slug, {}).get("menu_id") != ids["menu_id"] or old.get(slug, {}).get("location_id") != ids["location_id"]:
+            changed.append(f"{old.get(slug, {}).get('name', slug)} IDs (now location {ids['location_id']}, menu {ids['menu_id']})")
+    return ", ".join(changed) or "settings"
+
+
 class MenuStore:
-    def __init__(self, fetch=sodexo.fetch_raw):
+    def __init__(self, fetch=sodexo.fetch_raw, rediscover=None, notify=None):
         self._fetch = fetch
+        self._rediscover = rediscover or _rediscover
+        self._notify = notify or alerts.send
         self._lock = threading.Lock()
         self._refreshing = threading.Event()
         self.data = {"days": {}, "last_success": None, "last_attempt": None,
@@ -96,7 +134,7 @@ class MenuStore:
         finally:
             self._refreshing.clear()
 
-    def _do_refresh(self) -> None:
+    def _do_refresh(self, allow_fix: bool = True) -> None:
         mode = self.mode()
         today = campus_now().date()
         days = [today + dt.timedelta(days=i) for i in range(config.DAYS_AHEAD)]
@@ -141,6 +179,9 @@ class MenuStore:
             self.data["last_attempt"] = _iso(now)
             if ok:
                 self.data["last_success"] = _iso(now)
+                self.data["failing_since"] = None
+            elif mode == "live" and jobs:
+                self.data["failing_since"] = self.data.get("failing_since") or _iso(now)
             self.data["last_error"] = "; ".join(errors[:3]) if errors else None
             self.data["partial_failures"] = len(errors)
             self.data["source"] = mode
@@ -151,6 +192,60 @@ class MenuStore:
             log.warning("Menu refresh had %d failures, e.g. %s", len(errors), errors[0])
         else:
             log.info("Menu refresh OK (%d location-days)", ok)
+
+        if mode == "live" and jobs and not ok and allow_fix and self._try_fix():
+            self._do_refresh(allow_fix=False)  # retry with the new values (this also handles alerts)
+            return
+        self._check_alerts(mode, ok)
+
+    # ---- self-repair + alerts -------------------------------------------
+    def _try_fix(self) -> bool:
+        """Every download failed: look the key / menu IDs up again (throttled). True if fixed."""
+        now = campus_now()
+        last = _hours_since(self.data.get("last_fix_attempt"), now)
+        if last is not None and last < config.REDISCOVER_EVERY_HOURS:
+            return False
+        with self._lock:
+            self.data["last_fix_attempt"] = _iso(now)
+            self._save_disk()
+        try:
+            fix = self._rediscover()
+        except Exception:
+            log.exception("Looking up new Sodexo settings failed")
+            return False
+        if not fix:
+            log.warning("All menu downloads failed and no new working Sodexo settings were found")
+            return False
+        what = _describe_fix(fix)
+        config.save_sodexo_override(fix)
+        log.warning("Sodexo settings changed (%s); using the new ones", what)
+        self._notify(
+            f"Sodexo changed its {what}. Max Alert found the new values and fixed itself. "
+            "To make it permanent (it redoes this after each redeploy), run `python discover.py`, "
+            "commit locations.json, and update SODEXO_API_KEY on your host.")
+        return True
+
+    def _check_alerts(self, mode: str, ok: int) -> None:
+        now = campus_now()
+        since = stale_since(self.data, now)
+        sent = self.data.get("alert_sent_at")
+        message = None
+        if since:
+            sent_age = _hours_since(sent, now)
+            if sent_age is None or sent_age >= config.ALERT_REPEAT_HOURS:
+                hours = int(_hours_since(since, now))
+                message = (f"Menus haven't updated for {hours} hours: every download from Sodexo is failing "
+                           f"and the automatic fix didn't work. Last error: {(self.data.get('last_error') or '')[:300]} "
+                           "See \"If it breaks\" in the README.")
+                sent = _iso(now)
+        elif sent and ok and mode == "live":
+            message, sent = "Menus are downloading again. All good.", None
+        if message is None:
+            return
+        self._notify(message)
+        with self._lock:
+            self.data["alert_sent_at"] = sent
+            self._save_disk()
 
     def ensure_fresh(self) -> None:
         """Refresh in the background if stale. Only demo data (instant, no network) blocks:

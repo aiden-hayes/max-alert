@@ -53,13 +53,14 @@ class MissingApiKey(RuntimeError):
 
 def fetch_raw(location: dict, day: dt.date) -> list[dict]:
     """Raw JSON for one location on one day. Raises on network/HTTP/shape errors."""
-    if not config.SODEXO_API_KEY:
+    key = config.api_key()
+    if not key:
         raise MissingApiKey("SODEXO_API_KEY is not set")
-    url = config.SODEXO_API_URL.format(location_id=location["location_id"], menu_id=location["menu_id"])
+    url = config.api_url().format(location_id=location["location_id"], menu_id=location["menu_id"])
     resp = requests.get(
         url,
         params={"date": day.isoformat()},
-        headers={**HEADERS, "Api-Key": config.SODEXO_API_KEY},
+        headers={**HEADERS, "Api-Key": key},
         timeout=config.REQUEST_TIMEOUT,
     )
     resp.raise_for_status()

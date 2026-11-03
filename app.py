@@ -9,7 +9,7 @@ from flask import Flask, jsonify, request, send_from_directory
 import config
 import summary
 from auth import bp as auth_bp, login_manager
-from menu_store import MenuStore, campus_now
+from menu_store import MenuStore, campus_now, stale_since
 from models import db
 from tracker import bp as tracker_bp
 
@@ -114,6 +114,7 @@ def menus():
         "dates": [(now.date() + dt.timedelta(days=i)).isoformat() for i in range(config.DAYS_AHEAD)],
         "last_success": data.get("last_success"),
         "last_error": data.get("last_error"),
+        "stale_since": stale_since(data, now),  # menus stuck for ALERT_AFTER_HOURS+
         "refreshing": store.refreshing,
         "now": now.isoformat(),
         "current": current_or_next_meal(data["days"]),
@@ -142,7 +143,10 @@ def ai_summary():
 
 @app.get("/api/health")
 def health():
-    return jsonify({"ok": True, "mode": store.mode(), "locations": len(store.locations())})
+    data = store.snapshot()
+    return jsonify({"ok": True, "mode": store.mode(), "locations": len(store.locations()),
+                    "menus_ok": stale_since(data) is None, "last_success": data.get("last_success"),
+                    "failing_since": data.get("failing_since")})
 
 
 if __name__ == "__main__":

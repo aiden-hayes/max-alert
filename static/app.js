@@ -126,7 +126,10 @@ function renderStatus(d) {
   const b = [];
   if (d.mode === "demo") b.push(`<div class="banner info"><b>Demo data.</b> These menus are made up. Add your Sodexo API key (see README) to see the real MAX menu.</div>`);
   if (d.mode === "unconfigured") b.push(`<div class="banner">No dining locations are set up yet. Run <code>python discover.py</code> (see README).</div>`);
-  if ((d.last_error && d.mode === "live") || state.offline) {
+  if (d.stale_since && !state.offline) {
+    b.push(`<div class="banner"><b>Menus may be out of date.</b> Max Alert hasn't been able to download new menus from the dining site ` +
+      (d.last_success ? `since ${esc(timeAgo(d.last_success))}` : `yet`) + `. Check the posted menu at The MAX to be sure.</div>`);
+  } else if ((d.last_error && d.mode === "live") || state.offline) {
     b.push(d.last_success
       ? `<div class="banner">We couldn't reach the dining site just now, so this is the last menu we saved (updated ${esc(timeAgo(d.last_success))}). It may have changed.</div>`
       : `<div class="banner">We couldn't reach the dining site and don't have a saved menu yet. Try again in a few minutes.</div>`);

@@ -53,6 +53,8 @@ def test_normalize_tags_allergens_and_placeholders():
 @pytest.fixture
 def live_store(tmp_path, monkeypatch):
     monkeypatch.setattr(menu_store, "CACHE_FILE", tmp_path / "cache.json")
+    monkeypatch.setattr(config, "OVERRIDE_FILE", tmp_path / "override.json")
+    monkeypatch.setattr(menu_store, "_rediscover", lambda: None)  # never hit the network
     monkeypatch.setattr(config, "SODEXO_API_KEY", "test-key")
     monkeypatch.setattr(config, "DEMO_MODE", False)
     monkeypatch.setattr(config, "load_locations", lambda: [
@@ -272,3 +274,138 @@ def test_old_cache_without_nutrition_is_rebuilt(live_store):
     assert snap["schema"] == menu_store.SCHEMA_VERSION and not store.is_stale()
     first_day = snap["days"][min(snap["days"])]["the-max"]
     assert first_day[0]["stations"][0]["items"][0]["carbs_g"] == 35
+
+
+# ---- self-repair + alerts ----------------------------------------------------
+import discover  # noqa: E402
+import requests  # noqa: E402
+
+
+@pytest.fixture
+def repairable(tmp_path, monkeypatch):
+    """Live mode with real config.load_locations/api_key (so overrides apply), a fake clock,
+    and a Sodexo that only accepts the "new" key."""
+    loc_file = tmp_path / "locations.json"
+    loc_file.write_text(json.dumps([{"slug": "the-max", "name": "The MAX", "location_id": "1", "menu_id": "2"}]))
+    monkeypatch.setattr(config, "LOCATIONS_FILE", loc_file)
+    monkeypatch.setattr(config, "OVERRIDE_FILE", tmp_path / "override.json")
+    monkeypatch.setattr(menu_store, "CACHE_FILE", tmp_path / "cache.json")
+    monkeypatch.setattr(config, "SODEXO_API_KEY", "old")
+    monkeypatch.setattr(config, "DEMO_MODE", False)
+    clock = {"now": dt.datetime(2026, 11, 3, 9, 0, tzinfo=config.CAMPUS_TZ)}
+    monkeypatch.setattr(menu_store, "campus_now", lambda: clock["now"])
+    sent, fixes = [], []
+
+    def fetch(loc, day):
+        if config.api_key() != "new":
+            raise requests.HTTPError("401 Client Error: Unauthorized")
+        return FIXTURE
+
+    def make(fix=None):
+        def rediscover():
+            fixes.append(1)
+            return fix
+        return menu_store.MenuStore(fetch=fetch, rediscover=rediscover, notify=sent.append)
+    return {"make": make, "sent": sent, "fixes": fixes, "clock": clock}
+
+
+NEW_KEY_FIX = {"api_key": "new", "api_url": config.SODEXO_API_URL,
+               "locations": {"the-max": {"location_id": "1", "menu_id": "2"}}}
+
+
+def test_rotated_key_is_found_and_used(repairable):
+    store = repairable["make"](NEW_KEY_FIX)
+    store.refresh()
+    snap = store.snapshot()
+    assert snap["last_error"] is None and len(snap["days"]) == config.DAYS_AHEAD
+    assert snap["failing_since"] is None
+    assert config.api_key() == "new"
+    assert len(repairable["sent"]) == 1 and "API key" in repairable["sent"][0]
+
+
+def test_override_ignored_once_settings_are_updated_by_hand(repairable, monkeypatch):
+    repairable["make"](NEW_KEY_FIX).refresh()
+    assert config.api_key() == "new"
+    monkeypatch.setattr(config, "SODEXO_API_KEY", "typed-in-by-hand")
+    assert config.api_key() == "typed-in-by-hand"
+
+
+def test_new_menu_id_applies_to_locations(repairable):
+    fix = {**NEW_KEY_FIX, "locations": {"the-max": {"location_id": "1", "menu_id": "999"}}}
+    repairable["make"](fix).refresh()
+    assert config.load_locations()[0]["menu_id"] == "999"
+    assert "menu 999" in repairable["sent"][0]
+
+
+def test_rediscovery_is_throttled(repairable):
+    store = repairable["make"](None)
+    store.refresh()
+    repairable["clock"]["now"] += dt.timedelta(hours=1)
+    store.refresh()
+    assert len(repairable["fixes"]) == 1
+    repairable["clock"]["now"] += dt.timedelta(hours=config.REDISCOVER_EVERY_HOURS)
+    store.refresh()
+    assert len(repairable["fixes"]) == 2
+
+
+def test_alert_after_hours_then_daily_then_recovered(repairable, monkeypatch):
+    store, sent, clock = repairable["make"](None), repairable["sent"], repairable["clock"]
+    store.refresh()
+    assert sent == [] and menu_store.stale_since(store.snapshot(), clock["now"]) is None
+
+    clock["now"] += dt.timedelta(hours=config.ALERT_AFTER_HOURS + 1)
+    store.refresh()
+    assert len(sent) == 1 and "haven't updated" in sent[0] and "401" in sent[0]
+    assert menu_store.stale_since(store.snapshot(), clock["now"])
+
+    clock["now"] += dt.timedelta(hours=2)
+    store.refresh()
+    assert len(sent) == 1  # no spam
+
+    clock["now"] += dt.timedelta(hours=config.ALERT_REPEAT_HOURS)
+    store.refresh()
+    assert len(sent) == 2  # daily reminder
+
+    monkeypatch.setattr(config, "SODEXO_API_KEY", "new")  # fixed by hand
+    clock["now"] += dt.timedelta(hours=1)
+    store.refresh()
+    assert len(sent) == 3 and "again" in sent[2]
+    assert menu_store.stale_since(store.snapshot(), clock["now"]) is None
+
+
+FAKE_PAGE = '<html><script>{"locationId":"54283001","menuId":"1410800"}</script><script src="/static/js/main.js"></script></html>'
+FAKE_BUNDLE = (
+    '_n.a.initializeApp({apiKey:"AIzaSyFIREBASE_KEY_NOT_SODEXO_123",projectId:"x"});'
+    'var e={Development:{API_URL:"https://api-dev.sodexomyway.net/v0.2/",API_KEY:"dev-key-0000-0000-0000-000000000000"},'
+    'Production:{NEXT_PUBLIC_IMAGES_HOST:"https://images-prd.sodexomyway.net",'
+    'API_URL:"https://api-prd.sodexomyway.net/v0.3/",API_KEY:"prod-key-1111-1111-1111-111111111111",AUTH_ENABLED:!0}};')
+
+
+def test_http_discovery_prefers_the_production_key(monkeypatch):
+    class Resp:
+        def __init__(self, text):
+            self.text = text
+    monkeypatch.setattr(discover.requests, "get",
+                        lambda url, **kw: Resp(FAKE_BUNDLE if url.endswith(".js") else FAKE_PAGE))
+    found, keys, api_url = discover.via_http(["https://example/en-us/locations/the-max"], verbose=False)
+    assert found == {"the-max": ("54283001", "1410800")}
+    assert keys[0] == "prod-key-1111-1111-1111-111111111111"
+    assert api_url == "https://api-prd.sodexomyway.net/v0.3/data/menu/{location_id}/{menu_id}"
+
+
+def test_rediscover_only_returns_verified_changes(monkeypatch):
+    locs = [{"slug": "the-max", "name": "The MAX", "location_id": "54283001", "menu_id": "1410800"}]
+    url = config.SODEXO_API_URL
+    monkeypatch.setattr(discover, "via_http", lambda pages, verbose: (
+        {"the-max": ("54283001", "1500000")}, ["firebase-key", "fresh-key"], url))
+    good = {("54283001", "1500000", "fresh-key")}
+    monkeypatch.setattr(discover, "verify", lambda l, m, k, u=None: (l, m, k) in good)
+    fix = discover.rediscover(locs, "stale-key", url)
+    assert fix == {"api_key": "fresh-key", "api_url": url,
+                   "locations": {"the-max": {"location_id": "54283001", "menu_id": "1500000"}}}
+
+    good = {("54283001", "1410800", "stale-key")}  # current settings still work
+    assert discover.rediscover(locs, "stale-key", url) is None
+
+    good = set()  # nothing works (e.g. site down)
+    assert discover.rediscover(locs, "stale-key", url) is None

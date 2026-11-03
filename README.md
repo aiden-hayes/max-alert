@@ -57,6 +57,19 @@ ANTHROPIC_MODEL=claude-haiku-4-5
 
 Only today's menu is sent, and results are cached, so repeat taps don't cost anything. Without a key, the button shows a friendly "not set up yet" message.
 
+### Get alerted if menus stop updating (recommended)
+
+The app repairs itself when Sodexo rotates its key or starts a new menu (see "If it breaks"). If it can't, it can ping you. Easiest option, free push notifications with no account:
+
+1. Install the **ntfy** app (iOS/Android) and subscribe to a long random topic name, e.g. `max-alert-7f3k29xq`.
+2. Add to `.env` (and to your host's environment variables):
+
+```
+ALERT_WEBHOOK_URL=https://ntfy.sh/max-alert-7f3k29xq
+```
+
+You get a message after 12 hours of failed downloads (`ALERT_AFTER_HOURS`), a reminder each day it lasts, one when it fixed itself, and one when menus are back. Discord and Slack webhook URLs work too. Without a URL, alerts only go to the server log.
+
 ### Run the tests
 
 ```bash
@@ -117,9 +130,13 @@ Which GCSU items are missing nutrition isn't known ahead of time. Nutrition was 
 
 ### If it breaks
 
+**Most breakages fix themselves.** When *every* download fails, the app reruns discovery over plain HTTP (at most every 6 hours). It reads the key and API URL from the `Production` entry in the site's JS bundle and the menu ID from the page. If verified new values work, it saves them to `data/sodexo_override.json`, reloads the menus, and sends you an alert. That file is ignored automatically once you change `SODEXO_API_KEY`, `SODEXO_API_URL` or `locations.json` yourself. On hosts that wipe `data/` on redeploy (Render's free plan does), the app just finds the values again, but it's still worth making the fix permanent with `python discover.py`. After 12 hours of failures the site shows a "Menus may be out of date" banner, and `/api/health` reports `"menus_ok": false`.
+
+The table is for when the automatic fix doesn't work:
+
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Yellow "couldn't reach the dining site" banner, logs show `401`/`403` | API key rotated | Rerun `python discover.py` (or copy the new `Api-Key` from DevTools into `.env`) |
+| Yellow "couldn't reach the dining site" banner, logs show `401`/`403` | API key rotated, or menu ID changed (Sodexo answers `401` for a bad menu ID too) | Rerun `python discover.py` (or copy the new `Api-Key` from DevTools into `.env`) |
 | `404` in logs | Location/menu ID changed | Rerun `discover.py`, or copy the new numbers from the DevTools request URL into `locations.json` |
 | Errors about "expected a list of meals" or missing fields | Sodexo changed the JSON shape | Look at the new response in DevTools → Preview, then update `normalize()` in `sodexo.py` |
 | URL is no longer `/v0.2/...` | New API version | Set `SODEXO_API_URL` in `.env` to the new pattern (keep `{location_id}` and `{menu_id}`) |
