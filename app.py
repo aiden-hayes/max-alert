@@ -7,6 +7,7 @@ import logging
 from flask import Flask, jsonify, request, send_from_directory
 
 import config
+import hours
 import summary
 from auth import bp as auth_bp, login_manager
 from menu_store import MenuStore, campus_now, stale_since
@@ -16,6 +17,7 @@ from tracker import bp as tracker_bp
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 store = MenuStore()
+hours_store = hours.HoursStore()
 
 # ---- Accounts + calorie log (auth.py, tracker.py, models.py) ----------------
 app.config.update(
@@ -125,6 +127,25 @@ def menus():
         "now": now.isoformat(),
         "current": current_or_next_meal(data["days"]),
         "hours": hours,
+    })
+
+
+@app.get("/api/hours")
+def dining_hours():
+    try:
+        hours_store.ensure_fresh()
+    except Exception:  # never let a refresh problem break the page
+        logging.exception("hours refresh failed")
+    data = hours_store.snapshot()
+    now = campus_now()
+    return jsonify({
+        "locations": [{"slug": l["slug"], "name": l["name"], "where": l["where"],
+                       "status": hours.status(l, now), "week": hours.week(l, now.date())}
+                      for l in data["locations"]],
+        "last_success": data.get("last_success"),
+        "last_error": data.get("last_error"),
+        "loading": hours_store.loading,
+        "source": hours.HOURS_URL,
     })
 
 

@@ -19,6 +19,11 @@
   </header>
 
   <main class="wrap">
+    <div class="tabs nav-tabs" id="navTabs" role="tablist" aria-label="Section">
+      <button type="button" class="tab" role="tab" data-view="menu" aria-selected="true">Menu</button>
+      <button type="button" class="tab" role="tab" data-view="hours" aria-selected="false">Hours</button>
+    </div>
+
     <div id="menuView">
       <div id="banners"></div>
 
@@ -45,6 +50,7 @@
       <div id="content" aria-live="polite"></div>
     </div>
 
+    <div id="hoursView" hidden></div>
     <div id="caloriesView" hidden></div>
     <div id="settingsView" hidden></div>
   </main>
@@ -108,6 +114,7 @@
   </dialog>
 
   <script src="/static/account.js"></script>
+  <script src="/static/hours.js"></script>
   <script src="/static/plate.js"></script>
   <script src="/static/app.js"></script>
 </body>

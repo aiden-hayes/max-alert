@@ -269,3 +269,33 @@ body.sheet-open { overflow: hidden; }
 .pro-g b { font-size: 1rem; letter-spacing: 0; text-transform: none; }
 @media (prefers-color-scheme: dark) { .pro-g { color: #8fd694; } }
 .st-body .item:first-child { border-top: 0; }
+
+/* ---------- Menu / Hours switch + Hours tab ---------- */
+.nav-tabs { margin-bottom: 14px; }
+.nav-tabs .tab { font-size: .95rem; padding: 9px 4px; }
+.hcard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
+.h-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%;
+  border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; padding: 14px 16px 6px; cursor: pointer; }
+.h-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.h-name { font-weight: 700; font-size: 1.05rem; }
+.h-where { font-size: .8rem; color: var(--muted); }
+.h-status { font-size: .88rem; font-weight: 600; color: var(--muted); margin-top: 4px; }
+.h-status.is-open { color: var(--green); }
+.h-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; }
+.h-status.is-open .h-dot { background: var(--green); }
+.hcard .chev { flex: none; width: 9px; height: 9px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg); margin-top: -4px; transition: transform .15s; }
+.hcard.open .chev { transform: rotate(-135deg); margin-top: 4px; }
+.h-today, .h-row { display: flex; gap: 12px; padding: 6px 16px; font-size: .88rem; }
+.h-today { padding-bottom: 14px; }
+.h-week { padding: 2px 0 10px; }
+.h-row { border-top: 1px solid var(--line); }
+.h-row.today { font-weight: 600; }
+.h-day { flex: none; width: 84px; color: var(--muted); }
+.h-row.today .h-day { color: var(--text); }
+.h-times { flex: 1; }
+.h-label { color: var(--muted); }
+.h-special { font-size: .65rem; text-transform: uppercase; letter-spacing: .04em; background: var(--warn-bg); color: var(--warn-text);
+  border-radius: 6px; padding: 1px 5px; vertical-align: 1px; }
+.h-src { margin-top: 4px; }
+.h-src a, .empty-state a { color: inherit; }

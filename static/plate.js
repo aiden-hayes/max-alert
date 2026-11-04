@@ -308,23 +308,28 @@ const Plate = (() => {
   }
 
   // ---------- views + toast ----------
+  const PUBLIC_VIEWS = ["menu", "hours"];  // no login needed
   function setView(v) {
-    if (v !== "menu" && !Account.user) v = "menu";
+    if (!PUBLIC_VIEWS.includes(v) && !Account.user) v = "menu";
     view = v;
     $("menuView").hidden = v !== "menu";
+    $("hoursView").hidden = v !== "hours";
     $("caloriesView").hidden = v !== "calories";
     $("settingsView").hidden = v !== "settings";
+    $("navTabs").hidden = !PUBLIC_VIEWS.includes(v);
+    for (const t of $("navTabs").querySelectorAll("[data-view]")) t.setAttribute("aria-selected", t.dataset.view === v);
+    if (v === "hours") Hours.show();
     if (v === "calories") renderCalories();
     if (v === "settings") renderSettings();
-    if (v !== "menu") loadLog();
+    if (!PUBLIC_VIEWS.includes(v)) loadLog();
     window.scrollTo(0, 0);
   }
   Account.onChange((u) => {
     log = null; logError = null;
     if (!u) {
       if (plate.editing) resetPlate();
-      if (view !== "menu") setView("menu");
-    } else if (view !== "menu") {
+      if (!PUBLIC_VIEWS.includes(view)) setView("menu");
+    } else if (!PUBLIC_VIEWS.includes(view)) {
       setView(view);
     }
     renderBar();

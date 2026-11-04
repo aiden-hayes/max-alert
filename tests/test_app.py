@@ -426,3 +426,95 @@ def test_stations_renamed_and_ordered():
     assert stations == ["Savory", "Main Grill Area", "Simply 3", "Slices",
                         "Salad", "Sizzle", "Spoonful", "Sandwich Area", "Twists", "Ucook",
                         "Vegetarian", "Dessert"]
+
+
+# ---- dining hours ------------------------------------------------------------
+import hours  # noqa: E402
+
+T = lambda h, m, p: {"hour": h, "minute": m, "period": p}  # noqa: E731
+HOURS_STATE = {"composition": {"regions": [{"fragments": [
+    {"content": {"main": {  # days as objects, closed weekend, a break
+        "slug": "chick-fil-a", "name": "Chick-fil-A",
+        "address": {"street": "231 West Hancock Street, Milledgeville GA, 31061 | Maxwell Student Union"},
+        "openingHours": {
+            "standardHours": [
+                {"days": [{"key": "1", "value": d} for d in ["Monday", "Tuesday", "Wednesday", "Thursday"]],
+                 "hours": [{"allDay": False, "startTime": T("07", "30", "AM"), "finishTime": T("09", "00", "PM")}]},
+                {"days": [{"value": "Friday"}], "hours": [{"allDay": False, "startTime": T("07", "30", "AM"), "finishTime": T("07", "00", "PM")}]},
+                {"days": [{"value": "Saturday"}, {"value": "Sunday"}], "hours": [{"allDay": False}]}],
+            "seasonalHours": [{"from": "2026-11-25T06:00:00Z", "to": "2026-11-27T23:59:00Z", "openingHours": [
+                {"days": ["1 Monday", "2 Tuesday", "3 Wednesday", "4 Thursday", "5 Friday"],
+                 "hours": [{"allDay": "False", "label": "Thanksgiving Break"}]}]}]}}}},
+    {"content": {"main": {  # "1 Monday" days, closes at midnight, string allDay
+        "slug": "pizza-hut", "name": "Pizza Hut",
+        "address": {"street": "140 West Campus Drive Milledgeville, GA 31061"},
+        "openingHours": {"standardHours": [
+            {"days": ["1 Monday", "2 Tuesday", "3 Wednesday", "4 Thursday", "7 Sunday"],
+             "hours": [{"allDay": "False", "startTime": T("05", "00", "PM"), "finishTime": T("12", "00", "AM")}]}],
+            "seasonalHours": []}}}},
+    {"content": {"main": {  # labelled meals with back-to-back periods
+        "slug": "the-max", "name": "The MAX", "address": {},
+        "openingHours": {"standardHours": [
+            {"days": ["Monday", "Tuesday", "Wednesday", "Thursday"], "hours": [
+                {"allDay": "false", "label": "Dinner", "startTime": T("04", "30", "PM"), "finishTime": T("08", "30", "PM")},
+                {"allDay": "false", "label": "Late Night", "startTime": T("08", "30", "PM"), "finishTime": T("09", "30", "PM")}]}],
+            "seasonalHours": []}}}},
+]}]}}
+HOURS_HTML = f"<html><script>window.__PRELOADED_STATE__ = {json.dumps(HOURS_STATE)};</script></html>"
+
+
+def at(day, h, m=0):
+    return dt.datetime(2026, 11, day, h, m, tzinfo=config.CAMPUS_TZ)  # Nov 2 2026 is a Monday
+
+
+def test_hours_parse_all_formats():
+    cfa, pizza, mx = hours.parse(HOURS_HTML)
+    assert (cfa["name"], cfa["where"]) == ("Chick-fil-A", "Maxwell Student Union")
+    assert pizza["where"] == "140 West Campus Drive"
+    week = hours.week(cfa, dt.date(2026, 11, 4))
+    assert week[0]["day"] == "Today" and week[0]["periods"][0]["text"] == "7:30 AM – 9:00 PM"
+    assert week[2]["periods"][0]["text"] == "7:30 AM – 7:00 PM"          # Friday
+    assert week[3]["periods"] == [] and week[3]["note"] == ""            # Saturday closed
+    assert hours.week(pizza, dt.date(2026, 11, 2))[0]["periods"][0]["text"] == "5:00 PM – 12:00 AM"
+    assert [p["label"] for p in hours.week(mx, dt.date(2026, 11, 2))[0]["periods"]] == ["Dinner", "Late Night"]
+
+
+def test_hours_break_overrides_standard():
+    cfa = hours.parse(HOURS_HTML)[0]
+    thanksgiving = hours.day_schedule(cfa, dt.date(2026, 11, 26))
+    assert thanksgiving == {"periods": [], "note": "Thanksgiving Break", "special": True}
+    assert hours.status(cfa, at(24, 22))["text"] == "Opens Mon at 7:30 AM"  # Tue night: skips the break + weekend
+
+
+def test_hours_status():
+    cfa, pizza, mx = hours.parse(HOURS_HTML)
+    assert hours.status(cfa, at(4, 5)) == {"open": False, "text": "Opens at 7:30 AM"}
+    assert hours.status(cfa, at(4, 12)) == {"open": True, "text": "Open until 9:00 PM"}
+    assert hours.status(cfa, at(6, 20))["text"] == "Opens Mon at 7:30 AM"   # Friday night
+    assert hours.status(pizza, at(4, 23, 30)) == {"open": True, "text": "Open until 12:00 AM"}
+    assert hours.status(pizza, at(5, 0, 30))["text"] == "Opens at 5:00 PM"
+    assert hours.status(mx, at(4, 20, 45))["text"] == "Open until 9:30 PM"  # Dinner runs into Late Night
+    assert hours.status(mx, at(4, 22))["text"] == "Opens tomorrow at 4:30 PM"
+
+
+def test_hours_endpoint_and_failure_keeps_old_hours(tmp_path, monkeypatch):
+    import app as app_module
+    monkeypatch.setattr(hours, "CACHE_FILE", tmp_path / "hours.json")
+    page = {"html": HOURS_HTML}
+
+    def fetch():
+        if page["html"] is None:
+            raise ConnectionError("site down")
+        return page["html"]
+    store = hours.HoursStore(fetch=fetch)
+    store.refresh()
+    monkeypatch.setattr(app_module, "hours_store", store)
+    monkeypatch.setattr(store, "ensure_fresh", lambda: None)
+    body = app_module.app.test_client().get("/api/hours").get_json()
+    assert [l["name"] for l in body["locations"]] == ["Chick-fil-A", "Pizza Hut", "The MAX"]
+    assert len(body["locations"][0]["week"]) == 7 and "text" in body["locations"][0]["status"]
+
+    page["html"] = None
+    store.refresh()
+    snap = store.snapshot()
+    assert "site down" in snap["last_error"] and len(snap["locations"]) == 3
