@@ -518,3 +518,70 @@ def test_hours_endpoint_and_failure_keeps_old_hours(tmp_path, monkeypatch):
     store.refresh()
     snap = store.snapshot()
     assert "site down" in snap["last_error"] and len(snap["locations"]) == 3
+
+
+# ---- live MAX hours drive the meal times + "The MAX is closed" ------------------
+@pytest.fixture
+def live_hours(tmp_path, monkeypatch):
+    import app as app_module
+    s = hours.HoursStore(fetch=lambda: HOURS_HTML)
+    s.refresh()
+    monkeypatch.setattr(app_module, "hours_store", s)
+    return app_module
+
+
+def test_meal_times_come_from_posted_hours(live_hours):
+    wed = dt.date(2026, 11, 4)
+    assert live_hours.meal_hours(wed, "Dinner") == (dt.time(16, 30), dt.time(20, 30))
+    assert live_hours.meal_hours(wed, "Late Night") == (dt.time(20, 30), dt.time(21, 30))
+    assert live_hours.meal_hours(wed, "Breakfast") == (dt.time(7, 30), dt.time(10, 45))  # not posted -> config
+
+
+def test_menu_says_when_the_max_opens(live_hours, tmp_path, monkeypatch):
+    monkeypatch.setattr(menu_store, "CACHE_FILE", tmp_path / "cache.json")
+    monkeypatch.setattr(config, "DEMO_MODE", True)
+    monkeypatch.setattr(live_hours, "store", menu_store.MenuStore())
+    client = live_hours.app.test_client()
+    monkeypatch.setattr(live_hours, "campus_now", lambda: at(4, 22))      # Wed 10 PM: closed
+    assert client.get("/api/menus").get_json()["max_status"] == {"open": False, "text": "Opens tomorrow at 4:30 PM"}
+    monkeypatch.setattr(live_hours, "campus_now", lambda: at(4, 18))      # Wed 6 PM: dinner
+    assert client.get("/api/menus").get_json()["max_status"]["open"] is True
+
+
+# ---- thumbs up / down ------------------------------------------------------------
+@pytest.fixture
+def rating_client(client, monkeypatch):
+    import ratings
+    monkeypatch.setattr(ratings, "_week_dishes", lambda: {"Chicken Tenders", "Veggie  Wrap"})
+    return client
+
+
+def test_votes_count_change_and_take_back(rating_client):
+    c = rating_client
+    assert c.post("/api/ratings", json={"dish": "Chicken Tenders", "vote": 1}).get_json() == {"up": 1, "down": 0, "mine": 1}
+    assert "mx_voter" in c.get_cookie("mx_voter").key  # one vote per browser when logged out
+    assert c.post("/api/ratings", json={"dish": "chicken  tenders", "vote": -1}).get_json() == {"up": 0, "down": 1, "mine": -1}
+    assert c.get("/api/ratings").get_json()["ratings"] == {"Chicken Tenders": {"up": 0, "down": 1, "mine": -1}}
+    assert c.post("/api/ratings", json={"dish": "Chicken Tenders", "vote": 0}).get_json() == {"up": 0, "down": 0, "mine": 0}
+
+
+def test_votes_from_different_people_add_up(rating_client):
+    import app as app_module
+    rating_client.post("/api/ratings", json={"dish": "Chicken Tenders", "vote": 1})
+    other = app_module.app.test_client()
+    signup(other, "pat@gcsu.edu")
+    assert other.post("/api/ratings", json={"dish": "Chicken Tenders", "vote": 1}).get_json() == {"up": 2, "down": 0, "mine": 1}
+    assert other.get("/api/ratings").get_json()["ratings"]["Chicken Tenders"] == {"up": 2, "down": 0, "mine": 1}
+
+
+@pytest.mark.parametrize("body,status", [
+    ({"dish": "Made Up Dish", "vote": 1}, 404),
+    ({"dish": "Chicken Tenders", "vote": 5}, 400),
+    ({"dish": "Chicken Tenders", "vote": True}, 400),
+])
+def test_bad_votes_rejected(rating_client, body, status):
+    assert rating_client.post("/api/ratings", json=body).status_code == status
+
+
+def test_votes_must_be_json(rating_client):
+    assert rating_client.post("/api/ratings", data="dish=Chicken Tenders&vote=1").status_code == 415

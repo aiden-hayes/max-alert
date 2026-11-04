@@ -3,6 +3,7 @@
     users         one row per account; password stored only as a salted hash
     logged_meals  a meal a user logged (date + meal period)
     logged_items  the dishes on that meal, with per-serving nutrition and servings
+    dish_votes    thumbs up/down: one row per (dish name, voter)
 
 Tables are created automatically when the app starts (see app.py / `flask --app app init-db`).
 """
@@ -12,7 +13,7 @@ import datetime as dt
 
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -88,3 +89,15 @@ class LoggedItem(db.Model):
              "station": self.station, "location": self.location, "portion": self.portion}
         d.update({k: num(getattr(self, k)) for k in NUTRIENTS})
         return d
+
+
+class DishVote(db.Model):
+    """One thumbs up (+1) or down (-1) per voter per dish. Dishes are matched by name
+    (see ratings.dish_key), so a dish keeps its rating when it comes back another day."""
+    __tablename__ = "dish_votes"
+    __table_args__ = (UniqueConstraint("dish", "voter"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dish: Mapped[str] = mapped_column(String(120), index=True)
+    voter: Mapped[str] = mapped_column(String(40))   # "u<user id>" or "a<random browser id>"
+    value: Mapped[int]
+    updated_at: Mapped[dt.datetime] = mapped_column(default=lambda: dt.datetime.now(dt.timezone.utc))

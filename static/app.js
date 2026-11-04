@@ -3,7 +3,7 @@ const STANDARD_MEALS = ["Breakfast", "Lunch", "Dinner", "Late Night"];
 const TAG_LABELS = { vegetarian: "Vegetarian", vegan: "Vegan", "plant-based": "Plant-based",
   "gluten-free": "Gluten-free", mindful: "Mindful" };
 
-const state = { data: null, date: null, meal: null, location: "all", diets: new Set(), q: "", aiKey: null, proteins: false };
+const state = { data: null, date: null, meal: null, location: "all", diets: new Set(), q: "", aiKey: null, proteins: false, ratings: {} };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -38,6 +38,46 @@ function scheduleMealSwitch(iso) {
   if (ms > 0 && ms < 24 * 3600 * 1000) switchTimer = setTimeout(load, ms);
 }
 
+// ---------- thumbs up / down ----------
+async function loadRatings() {
+  try {
+    const res = await fetch("/api/ratings");
+    if (!res.ok) return;
+    state.ratings = (await res.json()).ratings || {};
+    render();
+  } catch { /* ratings are optional */ }
+}
+
+function ratingHtml(item) {
+  const r = state.ratings[item.name] || { up: 0, down: 0, mine: 0 };
+  const total = r.up + r.down;
+  const n = esc(item.name);
+  return `<div class="rate">` +
+    `<button type="button" class="vote" data-vote="1" data-dish="${n}" aria-pressed="${r.mine === 1}" aria-label="Thumbs up ${n}">👍<span>${r.up || ""}</span></button>` +
+    `<button type="button" class="vote" data-vote="-1" data-dish="${n}" aria-pressed="${r.mine === -1}" aria-label="Thumbs down ${n}">👎<span>${r.down || ""}</span></button>` +
+    (total >= 3 ? `<span class="liked">${Math.round((100 * r.up) / total)}% liked</span>` : "") + `</div>`;
+}
+
+async function vote(btn) {
+  const dish = btn.dataset.dish, value = +btn.dataset.vote;
+  const before = state.ratings[dish] || { up: 0, down: 0, mine: 0 };
+  const next = before.mine === value ? 0 : value;  // tap again to take it back
+  const r = { ...before, mine: next };              // update right away, then confirm with the server
+  if (before.mine === 1) r.up--; if (before.mine === -1) r.down--;
+  if (next === 1) r.up++; if (next === -1) r.down++;
+  state.ratings[dish] = r; render();
+  try {
+    const res = await fetch("/api/ratings", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dish, vote: next }) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Couldn't save your vote.");
+    state.ratings[dish] = await res.json();
+  } catch (e) {
+    state.ratings[dish] = before;
+    Plate.toast(e.message, true);
+  }
+  render();
+}
+
 async function load() {
   try {
     const res = await fetch("/api/menus");
@@ -55,6 +95,7 @@ async function load() {
       state.meal = data.current.meal;
     }
     scheduleMealSwitch(data.current.changes_at);
+    loadRatings();
     if (data.refreshing && !Object.keys(data.days).length) setTimeout(load, 3000);
   } catch (e) {
     if (!state.data) {
@@ -116,7 +157,7 @@ function itemHtml(item, extra = "", ctx = null, proteinPill = false) {
     (item.description ? `<div class="desc">${esc(item.description)}</div>` : "") +
     (extra ? `<div class="meta">${extra}</div>` : "") +
     `<div class="meta nut${nut.startsWith("Nutrition info") ? " na" : ""}">${esc(nut)}</div>` +
-    (contains ? `<div class="meta">${esc(contains)}</div>` : "") + `</div>` +
+    (contains ? `<div class="meta">${esc(contains)}</div>` : "") + ratingHtml(item) + `</div>` +
     (proteinPill ? `<span class="pro-g" title="Protein per serving"><b>${g1(item.protein_g)}g</b>protein</span>` : "") +
     `${add}</div>`;
 }
@@ -179,6 +220,13 @@ function renderHero(d) {
   const c = d.current, hero = $("hero");
   if (!c.meal || c.date !== state.date || c.meal !== state.meal) { hero.hidden = true; return; }
   hero.hidden = false;
+  const max = d.max_status;
+  if (c.status !== "now" && max && !max.open) {  // closed right now: say when it opens
+    hero.innerHTML = `<div class="k"><span class="dot off"></span>The MAX is closed</div>` +
+      `<div class="v">${esc(max.text)}</div>` +
+      `<div class="t">Up next: ${esc(c.meal)}${c.label ? ` · ${esc(c.label)}` : ""}</div>`;
+    return;
+  }
   hero.innerHTML = `<div class="k">${c.status === "now" ? '<span class="dot"></span>Serving now' : "Up next"}</div>` +
     `<div class="v">${esc(c.meal)}</div>` + (c.label ? `<div class="t">${esc(c.label)}</div>` : "");
 }
@@ -321,6 +369,7 @@ document.addEventListener("click", (e) => {
     if (entry) { Plate.add(entry); t.classList.add("added"); setTimeout(() => t.classList.remove("added"), 700); }
     return;
   }
+  if (t.dataset.vote) return vote(t);
   if (t.dataset.st) return toggleStation(t);
   if (t.dataset.bulk) return bulkStations(t.dataset.bulk === "expand");
   if (t.id === "proteinsBtn") { state.proteins = !state.proteins; render(); return; }

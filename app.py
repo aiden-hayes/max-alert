@@ -12,6 +12,7 @@ import summary
 from auth import bp as auth_bp, login_manager
 from menu_store import MenuStore, campus_now, stale_since
 from models import db
+import ratings
 from tracker import bp as tracker_bp
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -31,6 +32,7 @@ db.init_app(app)
 login_manager.init_app(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(tracker_bp)
+app.register_blueprint(ratings.bp)
 with app.app_context():
     db.create_all()  # creates data/maxalert.db and any missing tables; never deletes data
 
@@ -48,11 +50,33 @@ DEFAULT_HOURS = {
 }
 
 
-def meal_hours(day: dt.date, meal: str) -> tuple[dt.time, dt.time] | None:
-    hours = config.MEAL_HOURS.get(day.weekday(), {}).get(meal) or DEFAULT_HOURS.get(meal)
-    if not hours:
+MAX_SLUG = "the-max"  # The MAX's slug on the GCSU hours page (hours.py)
+
+
+def _live_meal_hours(day: dt.date, meal: str) -> tuple[str, str] | None:
+    """The MAX's posted hours for this meal (GCSU hours page), e.g. ("16:30", "20:30")."""
+    loc = hours_store.location(MAX_SLUG)
+    if not loc:
         return None
-    return dt.time.fromisoformat(hours[0]), dt.time.fromisoformat(hours[1])
+    periods = hours.day_schedule(loc, day)["periods"]
+    want = meal.casefold()
+    for p in periods:  # "Dinner"
+        if p["label"].casefold() == want:
+            return p["start"], p["end"]
+    for p in periods:  # "Lunch - FALL BREAK", "Adjusted weather hours: Dinner" (but not "Light Lunch")
+        label = p["label"].casefold()
+        if want in label and ("light" in want or "light" not in label):
+            return p["start"], p["end"]
+    return None
+
+
+def meal_hours(day: dt.date, meal: str) -> tuple[dt.time, dt.time] | None:
+    """Live posted hours when we have them, else config.MEAL_HOURS, else a rough default."""
+    found = _live_meal_hours(day, meal) or config.MEAL_HOURS.get(day.weekday(), {}).get(meal) \
+        or DEFAULT_HOURS.get(meal)
+    if not found:
+        return None
+    return tuple(dt.time(23, 59) if t == "24:00" else dt.time.fromisoformat(t) for t in found)
 
 
 def meals_on(days: dict, date: str) -> list[str]:
@@ -104,14 +128,15 @@ def index():
 def menus():
     try:
         store.ensure_fresh()
+        hours_store.ensure_fresh()  # meal times + "The MAX is closed" come from the hours page
     except Exception:  # never let a refresh problem break the page
         logging.exception("refresh failed")
     data = store.snapshot()
     now = campus_now()
-    hours = {}
+    meal_times = {}
     for i in range(config.DAYS_AHEAD):
         d = now.date() + dt.timedelta(days=i)
-        hours[d.isoformat()] = {
+        meal_times[d.isoformat()] = {
             m: [fmt(h[0]), fmt(h[1])] for m in meals_on(data["days"], d.isoformat())
             if (h := meal_hours(d, m))
         }
@@ -126,8 +151,17 @@ def menus():
         "refreshing": store.refreshing,
         "now": now.isoformat(),
         "current": current_or_next_meal(data["days"]),
-        "hours": hours,
+        "max_status": hours.status(loc, now) if (loc := hours_store.location(MAX_SLUG)) else None,
+        "hours": meal_times,
     })
+
+
+def week_dishes() -> set[str]:
+    return {item["name"] for locs in store.snapshot()["days"].values() for meals in locs.values()
+            for meal in meals for st in meal["stations"] for item in st["items"]}
+
+
+ratings.init(week_dishes)
 
 
 @app.get("/api/hours")

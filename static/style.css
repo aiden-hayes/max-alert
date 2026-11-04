@@ -47,6 +47,7 @@ main { padding-top: 14px; padding-bottom: 24px; }
 .hero .k { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; opacity: .75; }
 .hero .v { font-size: 1.25rem; font-weight: 700; }
 .hero .t { font-size: .9rem; opacity: .85; }
+.hero .dot.off { background: #f0a35b; }
 .hero .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6fdc74;
   margin-right: 6px; vertical-align: middle; }
 
@@ -299,3 +300,12 @@ body.sheet-open { overflow: hidden; }
   border-radius: 6px; padding: 1px 5px; vertical-align: 1px; }
 .h-src { margin-top: 4px; }
 .h-src a, .empty-state a { color: inherit; }
+
+/* ---------- thumbs up / down ---------- */
+.rate { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.vote { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--card);
+  color: var(--muted); border-radius: 999px; padding: 2px 9px; font: inherit; font-size: .8rem; cursor: pointer; line-height: 1.6; }
+.vote span:empty { display: none; }
+.vote[aria-pressed="true"] { border-color: var(--green); background: var(--green-soft); color: var(--text); font-weight: 600; }
+.vote[data-vote="-1"][aria-pressed="true"] { border-color: var(--muted); background: var(--bg); }
+.liked { font-size: .78rem; color: var(--green); font-weight: 600; margin-left: 2px; }

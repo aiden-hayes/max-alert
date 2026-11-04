@@ -269,6 +269,10 @@ class HoursStore:
                 self._busy.clear()
         threading.Thread(target=run, daemon=True).start()
 
+    def location(self, slug: str) -> dict | None:
+        """One location's parsed hours (read-only; refreshes replace the whole list)."""
+        return next((l for l in self.data.get("locations") or [] if l["slug"] == slug), None)
+
     def snapshot(self) -> dict:
         with self._lock:
             return json.loads(json.dumps(self.data))
