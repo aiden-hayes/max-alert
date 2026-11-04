@@ -83,8 +83,14 @@ def current_or_next_meal(days: dict) -> dict:
                 label = f"Until {fmt(hours[1])}" if status == "now" else \
                     f"{'Today' if offset == 0 else 'Tomorrow' if offset == 1 else day.strftime('%A')} " \
                     f"{fmt(hours[0])} – {fmt(hours[1])}"
-            return {"date": day.isoformat(), "meal": name, "status": status, "label": label}
-    return {"date": now.date().isoformat(), "meal": None, "status": "none", "label": ""}
+            # When this answer changes (meal ends, or the next one starts), so the page can switch then.
+            changes_at = None
+            if hours:
+                t = hours[1] if status == "now" else hours[0]
+                changes_at = dt.datetime.combine(day, t, tzinfo=config.CAMPUS_TZ).isoformat()
+            return {"date": day.isoformat(), "meal": name, "status": status, "label": label,
+                    "changes_at": changes_at}
+    return {"date": now.date().isoformat(), "meal": None, "status": "none", "label": "", "changes_at": None}
 
 
 @app.get("/")

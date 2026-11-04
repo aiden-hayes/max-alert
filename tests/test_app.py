@@ -103,6 +103,13 @@ def test_current_meal_picks_next_meal(monkeypatch, live_store):
     late = at(21, 0)
     assert late["meal"] == "Breakfast" and late["date"] == "2026-10-01"
 
+    early = at(5, 0)  # closed, but shows breakfast and switches when it opens
+    assert early["meal"] == "Breakfast" and early["status"] == "next" and early["date"] == "2026-09-30"
+    assert early["changes_at"].startswith("2026-09-30T07:30")
+    dinner = at(19, 0)
+    assert dinner["meal"] == "Dinner" and dinner["status"] == "now"
+    assert dinner["changes_at"].startswith("2026-09-30T20:00")  # dinner ends
+
 
 def test_api_endpoints_in_demo_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(menu_store, "CACHE_FILE", tmp_path / "cache.json")

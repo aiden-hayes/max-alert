@@ -31,6 +31,13 @@ function isProteinPick(item) {
 }
 
 // ---------- data ----------
+let follow = true, lastCurrent = null, switchTimer = null;
+function scheduleMealSwitch(iso) {
+  clearTimeout(switchTimer);
+  const ms = iso ? new Date(iso) - Date.now() + 5000 : -1;  // 5s after the change
+  if (ms > 0 && ms < 24 * 3600 * 1000) switchTimer = setTimeout(load, ms);
+}
+
 async function load() {
   try {
     const res = await fetch("/api/menus");
@@ -38,10 +45,16 @@ async function load() {
     const data = await res.json();
     const first = !state.data;
     state.data = data;
-    if (first || !data.dates.includes(state.date)) {
+    // Follow the clock: show the meal being served now (or the next one). Tapping another
+    // meal/day stops following until the served meal changes, then it jumps to the new one.
+    const cur = `${data.current.date}|${data.current.meal}`;
+    if (cur !== lastCurrent) { follow = true; lastCurrent = cur; }
+    if (first || follow || !data.dates.includes(state.date)) {
+      if (!first && (state.date !== data.current.date || state.meal !== data.current.meal)) resetOpenStations();
       state.date = data.current.date;
       state.meal = data.current.meal;
     }
+    scheduleMealSwitch(data.current.changes_at);
     if (data.refreshing && !Object.keys(data.days).length) setTimeout(load, 3000);
   } catch (e) {
     if (!state.data) {
@@ -312,8 +325,10 @@ document.addEventListener("click", (e) => {
   if (t.dataset.bulk) return bulkStations(t.dataset.bulk === "expand");
   if (t.id === "proteinsBtn") { state.proteins = !state.proteins; render(); return; }
   if (t.dataset.date) { state.date = t.dataset.date; state.meal = null; resetOpenStations();
-    const cur = state.data.current; if (cur.date === state.date) state.meal = cur.meal; render(); }
-  else if (t.dataset.meal) { state.meal = t.dataset.meal; resetOpenStations(); render(); }
+    const cur = state.data.current; if (cur.date === state.date) state.meal = cur.meal;
+    follow = cur.date === state.date && cur.meal === state.meal; render(); }
+  else if (t.dataset.meal) { state.meal = t.dataset.meal; resetOpenStations();
+    const cur = state.data.current; follow = cur.date === state.date && cur.meal === state.meal; render(); }
   else if (t.dataset.diet) { const x = t.dataset.diet; state.diets.has(x) ? state.diets.delete(x) : state.diets.add(x); render(); }
   else if (t.id === "good") anythingGood();
 });
@@ -322,3 +337,5 @@ $("q").addEventListener("input", (e) => { state.q = e.target.value; render(); })
 
 load();
 setInterval(load, 10 * 60 * 1000);  // pick up background refreshes while the tab is open
+// Phones pause timers in background tabs, so check again whenever the page is shown.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
