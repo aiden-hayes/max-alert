@@ -20,3 +20,6 @@ def _no_live_hours(tmp_path, monkeypatch):
     monkeypatch.setattr(hours, "CACHE_FILE", tmp_path / "hours_cache.json")
     monkeypatch.setattr(hours.HoursStore, "ensure_fresh", lambda self: None)
     monkeypatch.setattr(app, "hours_store", hours.HoursStore(fetch=lambda: ""))
+
+# Favorite alerts never run from page visits in tests (they'd start background threads).
+os.environ.setdefault("FAVORITE_ALERTS_ON_VISIT", "0")

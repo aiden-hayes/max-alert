@@ -585,3 +585,136 @@ def test_bad_votes_rejected(rating_client, body, status):
 
 def test_votes_must_be_json(rating_client):
     assert rating_client.post("/api/ratings", data="dish=Chicken Tenders&vote=1").status_code == 415
+
+
+# ---- favorite dish alerts ------------------------------------------------------------
+class FakeStore:
+    def __init__(self, days):
+        self.days = days
+
+    def snapshot(self):
+        return {"days": self.days}
+
+    def ensure_fresh(self):
+        pass
+
+
+def _menu(*names, meal="Lunch"):
+    return {"the-max": [{"name": meal, "stations": [{"name": "Grill", "items": [{"name": n} for n in names]}]}]}
+
+
+@pytest.fixture
+def fav_client(client, monkeypatch):
+    """Logged-in client; today's menu has Chicken Tenders at Lunch and Dinner. Pushes are recorded."""
+    import favorites
+    today = dt.datetime.now(config.CAMPUS_TZ).date().isoformat()
+    lunch, dinner = _menu("Chicken Tenders", "Veggie Wrap"), _menu("Chicken  tenders", meal="Dinner")
+    store = FakeStore({today: {"the-max": lunch["the-max"] + dinner["the-max"]}})
+    favorites.init(store, lambda: {"Chicken Tenders", "Veggie Wrap", "Mac & Cheese"},
+                   lambda date, meal: f"{meal} 11:00 AM – 2:00 PM" if meal == "Lunch" else meal)
+    sent = []
+    monkeypatch.setattr(favorites, "push", lambda topic, title, msg, click="": sent.append((topic, title, msg)) or True)
+    monkeypatch.setattr(config, "FAVORITE_ALERT_TIME", "00:00")
+    signup(client)
+    client.sent, client.store = sent, store
+    return client
+
+
+def test_star_needs_login(client):
+    r = client.post("/api/favorites", json={"dish": "Chicken Tenders", "on": True})
+    assert r.status_code == 401
+
+
+def test_star_unstar_and_private_topic(fav_client):
+    c = fav_client
+    data = c.post("/api/favorites", json={"dish": "Chicken Tenders", "on": True}).get_json()
+    assert data["favorites"] == [{"dish": "chicken tenders", "name": "Chicken Tenders"}]
+    topic = data["alerts"]["topic"]
+    assert topic.startswith("maxalert-") and len(topic) >= 25 and data["alerts"]["enabled"] is True
+    assert c.get("/api/favorites").get_json()["alerts"]["topic"] == topic  # stable
+    assert c.post("/api/favorites", json={"dish": "Made Up", "on": True}).status_code == 404
+    assert c.post("/api/favorites", json={"dish": "Chicken Tenders", "on": "yes"}).status_code == 400
+    assert c.post("/api/favorites", data="dish=x").status_code == 415
+    assert c.post("/api/favorites", json={"dish": "chicken tenders", "on": False}).get_json()["favorites"] == []
+
+
+def test_morning_alert_lists_meals_and_sends_once(fav_client):
+    import app as app_module
+    import favorites
+    c = fav_client
+    c.post("/api/favorites", json={"dish": "Chicken Tenders", "on": True})
+    with app_module.app.app_context():
+        assert favorites.send_due() == {"checked": 1, "sent": 1}
+        assert favorites.send_due() == {"checked": 0, "sent": 0}  # never twice in a day
+    topic, title, msg = c.sent[0]
+    assert title == "Chicken Tenders is on the menu today"
+    assert "Lunch 11:00 AM – 2:00 PM" in msg and "Dinner" in msg
+    assert topic == c.get("/api/favorites").get_json()["alerts"]["topic"]
+
+
+def test_alert_skips_disabled_early_and_unserved(fav_client, monkeypatch):
+    import app as app_module
+    import favorites
+    c = fav_client
+    c.post("/api/favorites", json={"dish": "Mac & Cheese", "on": True})  # not on today's menu
+    with app_module.app.app_context():
+        monkeypatch.setattr(config, "FAVORITE_ALERT_TIME", "23:59")
+        if dt.datetime.now(config.CAMPUS_TZ).time() < dt.time(23, 59):
+            assert favorites.send_due() == {"skipped": "too early"}
+        monkeypatch.setattr(config, "FAVORITE_ALERT_TIME", "00:00")
+        assert favorites.send_due() == {"checked": 1, "sent": 0}
+    assert c.sent == []
+    other = app_module.app.test_client()
+    signup(other, "pat@gcsu.edu")
+    other.post("/api/favorites", json={"dish": "Chicken Tenders", "on": True})
+    assert other.put("/api/favorites/alerts", json={"enabled": False}).get_json()["alerts"]["enabled"] is False
+    with app_module.app.app_context():
+        assert favorites.send_due()["sent"] == 0
+    assert c.sent == []
+
+
+def test_two_favorites_one_message():
+    import favorites
+    title, msg = favorites.message_for({"Chicken Tenders": ["Lunch"], "Waffles": ["Breakfast", "Brunch"]})
+    assert title == "2 of your favorites are on today's menu"
+    assert msg == "• Chicken Tenders: Lunch\n• Waffles: Breakfast, Brunch"
+
+
+def test_cron_endpoint_needs_secret(fav_client, monkeypatch):
+    c = fav_client
+    monkeypatch.setattr(config, "CRON_SECRET", "")
+    assert c.post("/api/cron/daily").status_code == 404
+    monkeypatch.setattr(config, "CRON_SECRET", "s3cret-value")
+    assert c.post("/api/cron/daily").status_code == 403
+    assert c.post("/api/cron/daily", headers={"Authorization": "Bearer nope"}).status_code == 403
+    c.post("/api/favorites", json={"dish": "Chicken Tenders", "on": True})
+    r = c.post("/api/cron/daily", headers={"Authorization": "Bearer s3cret-value"})
+    assert r.status_code == 200 and r.get_json()["sent"] == 1
+    c.store.days = {}  # server just woke up: no menu yet -> ask the caller to retry
+    r = c.post("/api/cron/daily", headers={"Authorization": "Bearer s3cret-value"})
+    assert r.status_code == 503 and r.get_json()["retry"] is True
+
+
+def test_test_notification(fav_client):
+    assert fav_client.post("/api/favorites/alerts/test", json={}).get_json() == {"sent": True}
+    assert fav_client.sent[0][1] == "Max Alert test"
+
+
+# ---- Add to Home Screen ----------------------------------------------------------------
+def test_pwa_files_served(client):
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200 and "javascript" in sw.content_type and sw.headers["Cache-Control"] == "no-cache"
+    m = client.get("/manifest.webmanifest")
+    assert m.content_type.startswith("application/manifest+json")
+    manifest = json.loads(m.data)
+    assert manifest["display"] == "standalone" and manifest["start_url"] == "/"
+    for icon in manifest["icons"]:
+        assert client.get(icon["src"]).status_code == 200
+    html = client.get("/").get_data(as_text=True)
+    assert 'rel="manifest"' in html and "apple-touch-icon" in html
+    # every file the service worker pre-saves must exist, or installing it fails
+    shell = (ROOT / "static/sw.js").read_text().split("SHELL_FILES = [")[1].split("];")[0]
+    for path in [p.strip().strip('"') for p in shell.replace("\n", "").split(",") if p.strip()]:
+        assert client.get(path).status_code == 200, path
+    for resp in (sw, m):
+        resp.close()

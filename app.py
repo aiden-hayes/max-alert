@@ -7,6 +7,7 @@ import logging
 from flask import Flask, jsonify, request, send_from_directory
 
 import config
+import favorites
 import hours
 import summary
 from auth import bp as auth_bp, login_manager
@@ -35,6 +36,8 @@ login_manager.init_app(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(tracker_bp)
 app.register_blueprint(ratings.bp)
+app.register_blueprint(favorites.bp)
+app.register_blueprint(favorites.cron_bp)
 with app.app_context():
     db.create_all()  # creates data/maxalert.db and any missing tables; never deletes data
 
@@ -126,6 +129,20 @@ def index():
     return send_from_directory("static", "index.html")
 
 
+# ---- Add to Home Screen (PWA) ----------------------------------------------------
+# The service worker must be served from the site root so it can cover every page.
+@app.get("/sw.js")
+def service_worker():
+    resp = send_from_directory("static", "sw.js", mimetype="text/javascript", max_age=0)
+    resp.headers["Cache-Control"] = "no-cache"  # always check for a new version
+    return resp
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return send_from_directory("static", "manifest.webmanifest", mimetype="application/manifest+json")
+
+
 @app.get("/api/menus")
 def menus():
     try:
@@ -135,6 +152,7 @@ def menus():
         logging.exception("refresh failed")
     data = store.snapshot()
     now = campus_now()
+    favorites.maybe_run_on_visit(app, config.PUBLIC_URL or request.url_root)
     meal_times = {}
     for i in range(config.DAYS_AHEAD):
         d = now.date() + dt.timedelta(days=i)
@@ -164,6 +182,15 @@ def week_dishes() -> set[str]:
 
 
 ratings.init(week_dishes)
+
+
+def meal_label(date: str, meal: str) -> str:
+    """"Lunch 11:00 AM – 2:00 PM" (or just "Lunch" when hours are unknown)."""
+    h = meal_hours(dt.date.fromisoformat(date), meal)
+    return f"{meal} {fmt(h[0])} – {fmt(h[1])}" if h else meal
+
+
+favorites.init(store, week_dishes, meal_label)
 
 
 @app.get("/api/hours")

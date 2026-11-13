@@ -287,6 +287,7 @@ const Plate = (() => {
         </form>
         <p class="q-err" id="settingsErr"></p>
       </section>
+      ${Favorites.settingsHtml()}
       <section class="card settings">
         <h3>Account</h3>
         <p class="muted acct-line">Logged in as <b>${h(u.email)}</b></p>
@@ -377,5 +378,5 @@ const Plate = (() => {
     renderBar();
   });
 
-  return { add, totals, toast, setView };
+  return { add, totals, toast, setView, renderSettings };
 })();

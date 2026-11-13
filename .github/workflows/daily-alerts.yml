@@ -1,0 +1,36 @@
+# Wakes the app each morning so it sends favorite-dish alerts (Render's free plan sleeps).
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   MAX_ALERT_URL  the site's address, e.g. https://max-alert.onrender.com
+#   CRON_SECRET    the same value as CRON_SECRET in Render's Environment tab
+name: Daily favorite alerts
+
+on:
+  schedule:
+    # 11:15 and 12:15 UTC = 7:15 AM in Milledgeville in both summer (EDT) and winter (EST).
+    # The app skips the run that's before 7:00 local, and never alerts anyone twice a day.
+    - cron: "15 11 * * *"
+    - cron: "15 12 * * *"
+  workflow_dispatch: {}  # "Run workflow" button for testing
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Call /api/cron/daily (retries while the server wakes up and downloads menus)
+        env:
+          URL: ${{ secrets.MAX_ALERT_URL }}
+          SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$SECRET" ]; then
+            echo "Set the MAX_ALERT_URL and CRON_SECRET repository secrets first."; exit 1
+          fi
+          for attempt in 1 2 3 4 5 6 7 8; do
+            code=$(curl -sS -o out.json -w '%{http_code}' --max-time 90 -X POST \
+              -H "Authorization: Bearer $SECRET" "${URL%/}/api/cron/daily" || echo 000)
+            echo "Attempt $attempt: HTTP $code $(cat out.json 2>/dev/null)"
+            if [ "$code" = "200" ]; then exit 0; fi
+            if [ "$code" = "403" ] || [ "$code" = "404" ]; then exit 1; fi  # wrong secret / not set on server
+            sleep 30
+          done
+          exit 1

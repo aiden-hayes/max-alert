@@ -52,7 +52,7 @@ function ratingHtml(item) {
   const r = state.ratings[item.name] || { up: 0, down: 0, mine: 0 };
   const total = r.up + r.down;
   const n = esc(item.name);
-  return `<div class="rate">` +
+  return `<div class="rate">` + Favorites.starHtml(item) +
     `<button type="button" class="vote" data-vote="1" data-dish="${n}" aria-pressed="${r.mine === 1}" aria-label="Thumbs up ${n}">👍<span>${r.up || ""}</span></button>` +
     `<button type="button" class="vote" data-vote="-1" data-dish="${n}" aria-pressed="${r.mine === -1}" aria-label="Thumbs down ${n}">👎<span>${r.down || ""}</span></button>` +
     (total >= 3 ? `<span class="liked">${Math.round((100 * r.up) / total)}% liked</span>` : "") + `</div>`;
@@ -85,6 +85,10 @@ async function load() {
     const data = await res.json();
     const first = !state.data;
     state.data = data;
+    // The service worker (sw.js) answered from the copy saved on this phone.
+    state.saved = res.headers.get("X-MaxAlert-Offline") === "1";
+    state.offline = false;
+    if (state.saved) pickTodayFromSaved(data);
     // Follow the clock: show the meal being served now (or the next one). Tapping another
     // meal/day stops following until the served meal changes, then it jumps to the new one.
     const cur = `${data.current.date}|${data.current.meal}`;
@@ -107,6 +111,16 @@ async function load() {
     state.offline = true;  // keep showing what we already have
   }
   render();
+}
+
+// A saved menu says what was "current" when it was saved, which may be yesterday.
+// Move it to today (by this phone's clock) so the page doesn't open on an old day.
+function pickTodayFromSaved(data) {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  if (data.current.date >= today || !data.dates.includes(today)) return;
+  data.dates = data.dates.filter((d) => d >= today);
+  data.current = { date: today, meal: null, status: "next", label: "", changes_at: null };
 }
 
 // ---------- helpers ----------
@@ -178,11 +192,15 @@ function renderStatus(d) {
   $("updated").textContent = d.last_success ? `Updated ${timeAgo(d.last_success)}` :
     d.refreshing ? "Fetching menus…" : "No menu data yet";
   const b = [];
+  if (state.saved) b.push(`<div class="banner"><b>No connection.</b> Showing the menu saved on this phone` +
+    (d.last_success ? ` (updated ${esc(timeAgo(d.last_success))})` : "") + `. It may have changed.</div>`);
   if (d.mode === "demo") b.push(`<div class="banner info"><b>Demo data.</b> These menus are made up. Add your Sodexo API key (see README) to see the real MAX menu.</div>`);
   if (d.mode === "unconfigured") b.push(`<div class="banner">No dining locations are set up yet. Run <code>python discover.py</code> (see README).</div>`);
   if (d.stale_since && !state.offline) {
     b.push(`<div class="banner"><b>Menus may be out of date.</b> Max Alert hasn't been able to download new menus from the dining site ` +
       (d.last_success ? `since ${esc(timeAgo(d.last_success))}` : `yet`) + `. Check the posted menu at The MAX to be sure.</div>`);
+  } else if (state.saved) {
+    // already explained above
   } else if ((d.last_error && d.mode === "live") || state.offline) {
     b.push(d.last_success
       ? `<div class="banner">We couldn't reach the dining site just now, so this is the last menu we saved (updated ${esc(timeAgo(d.last_success))}). It may have changed.</div>`
@@ -383,6 +401,9 @@ document.addEventListener("click", (e) => {
 });
 $("location").addEventListener("change", (e) => { state.location = e.target.value; render(); });
 $("q").addEventListener("input", (e) => { state.q = e.target.value; render(); });
+
+// For favorites.js: the current menu data, and a way to redraw after starring.
+window.MaxMenu = { get data() { return state.data; }, render: () => state.data && render() };
 
 load();
 setInterval(load, 10 * 60 * 1000);  // pick up background refreshes while the tab is open

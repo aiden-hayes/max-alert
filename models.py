@@ -4,6 +4,8 @@
     logged_meals  a meal a user logged (date + meal period)
     logged_items  the dishes on that meal, with per-serving nutrition and servings
     dish_votes    thumbs up/down: one row per (dish name, voter)
+    favorites     starred dishes: one row per (user, dish name)
+    alert_settings  per user: their private ntfy topic, alerts on/off, last day alerted
 
 Tables are created automatically when the app starts (see app.py / `flask --app app init-db`).
 """
@@ -101,3 +103,24 @@ class DishVote(db.Model):
     voter: Mapped[str] = mapped_column(String(40))   # "u<user id>" or "a<random browser id>"
     value: Mapped[int]
     updated_at: Mapped[dt.datetime] = mapped_column(default=lambda: dt.datetime.now(dt.timezone.utc))
+
+
+class Favorite(db.Model):
+    """A starred dish. Matched by name (ratings.dish_key), like votes."""
+    __tablename__ = "favorites"
+    __table_args__ = (UniqueConstraint("user_id", "dish"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    dish: Mapped[str] = mapped_column(String(120))   # dish_key(name)
+    name: Mapped[str] = mapped_column(String(120))   # as shown on the menu when starred
+    created_at: Mapped[dt.datetime] = mapped_column(default=lambda: dt.datetime.now(dt.timezone.utc))
+
+
+class AlertSettings(db.Model):
+    """Favorite-dish alerts for one user. A separate table (not columns on users) so
+    existing databases pick it up with create_all, no migration needed."""
+    __tablename__ = "alert_settings"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    topic: Mapped[str] = mapped_column(String(64), unique=True)  # private, random ntfy topic
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_sent_date: Mapped[str | None] = mapped_column(String(10))  # campus date of the last daily check

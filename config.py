@@ -75,6 +75,19 @@ DEMO_MODE = os.environ.get("DEMO_MODE", "").lower() in {"1", "true", "yes"}
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
 
+# --- Favorite dish alerts ------------------------------------------------------
+# Each account gets a private ntfy topic; the morning check sends one push listing
+# the starred dishes on today's menu. See README "Favorite dish alerts".
+NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh").strip().rstrip("/")
+FAVORITE_ALERT_TIME = os.environ.get("FAVORITE_ALERT_TIME", "07:00")  # campus time, HH:MM
+# Shared secret for POST /api/cron/daily (the scheduled wake-up). Unset = endpoint off.
+CRON_SECRET = os.environ.get("CRON_SECRET", "").strip()
+# Also run the morning check when someone opens the site after FAVORITE_ALERT_TIME.
+FAVORITE_ALERTS_ON_VISIT = os.environ.get("FAVORITE_ALERTS_ON_VISIT", "1").lower() in {"1", "true", "yes"}
+# Link opened when a notification is tapped. Default: the address the site was reached at.
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").strip()
+MAX_FAVORITES = 100
+
 # --- Dining locations ------------------------------------------------------
 # Each location needs Sodexo's location ID and menu ID. `python discover.py`
 # tries to find them automatically and writes locations.json.

@@ -309,3 +309,35 @@ body.sheet-open { overflow: hidden; }
 .vote[aria-pressed="true"] { border-color: var(--green); background: var(--green-soft); color: var(--text); font-weight: 600; }
 .vote[data-vote="-1"][aria-pressed="true"] { border-color: var(--muted); background: var(--bg); }
 .liked { font-size: .78rem; color: var(--green); font-weight: 600; margin-left: 2px; }
+
+/* ---------- favorites (star + Settings card) ---------- */
+.star { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 999px;
+  padding: 2px 9px; font: inherit; font-size: .85rem; line-height: 1.5; cursor: pointer; }
+.star[aria-pressed="true"] { color: #b7791f; border-color: #e0b04a; background: #fff8e6; font-weight: 700; }
+@media (prefers-color-scheme: dark) { .star[aria-pressed="true"] { color: #f3c969; border-color: #8a6a1f; background: #2e2510; } }
+.ghost.small, .primary.small { padding: 5px 10px; font-size: .8rem; border-radius: 8px; }
+.switch { display: flex !important; align-items: center; gap: 8px; color: var(--text) !important; font-size: .95rem !important; margin: 10px 0 4px !important; }
+.switch input { width: auto !important; margin: 0 !important; accent-color: var(--green); transform: scale(1.2); }
+.fav-setup { margin: 8px 0 4px; font-size: .9rem; }
+.fav-setup summary { cursor: pointer; font-weight: 600; color: var(--green); }
+.fav-setup ol { margin: 8px 0 0; padding-left: 20px; }
+.fav-setup li { margin-bottom: 10px; }
+.fav-setup a { color: inherit; }
+.topic { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; flex-wrap: wrap; }
+.topic code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+  font-size: .85rem; overflow-wrap: anywhere; user-select: all; }
+.fav-h { margin-top: 14px !important; }
+.fav-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.fav-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-top: 1px solid var(--line); }
+.fav-list li span { display: flex; flex-direction: column; min-width: 0; }
+.fav-list small { color: var(--muted); font-size: .78rem; }
+
+/* ---------- Add to Home Screen card ---------- */
+.install { display: flex; align-items: flex-start; gap: 10px; background: var(--card); border: 1px solid var(--line);
+  border-left: 4px solid var(--green); border-radius: 12px; padding: 10px 10px 10px 12px; margin-bottom: 12px; font-size: .9rem; }
+.install-text { flex: 1; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+.install-text span { color: var(--muted); }
+.install-text .primary { margin-top: 6px; }
+.install-x { flex: none; border: 0; background: none; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; padding: 2px 6px; }
+.share-ico svg { width: 15px; height: 15px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

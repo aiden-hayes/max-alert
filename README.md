@@ -14,6 +14,10 @@ A mobile-first web app that shows what the GCSU dining hall (The MAX) is serving
 
 **Hours tab:** live open/closed status, today's hours and the full week for The MAX, Chick-fil-A, Einstein Bros., Ibasho Sushi, Books & Brew, Pizza Hut and The Mini. The hours come from the GCSU Dining hours page, break and holiday hours included.
 
+**Favorite dish alerts:** tap ☆ on any dish to star it (needs an account). On mornings when a starred dish is on the menu, you get one push notification around 7 AM listing it and the meals it's at, e.g. "Chicken Tenders is on the menu today · At The MAX: Lunch 11:00 AM – 2:00 PM". Notifications come through the free **ntfy** app. Each account gets its own private topic, shown in **Settings → Favorite dish alerts** with setup steps and a **Send a test notification** button. The same card lists your favorites with when each one is served next.
+
+**Add to Home Screen:** the site installs like an app (its own icon, opens full screen). Android/Chrome shows an **Install** button; on iPhone, Safari shows the Share → Add to Home Screen steps. A service worker (`static/sw.js`) keeps the last menu, hours and ratings on the phone. With bad or no signal, the app opens with that saved menu and a "No connection" note instead of an error. Logins, calorie logs and favorites are never saved on the phone.
+
 **Accounts + Build Your Plate:** the menu never needs a login. Tap **+** on any dish to add it to My Plate (a bottom sheet), adjust servings in half steps, and see running calories/protein/carbs/fat. **Log this meal** saves to your account; if you're logged out it asks you to log in or sign up first. From the profile icon (top right): **My Calories** (today's meals, totals, goal progress, edit/delete), **Settings** (calorie goal) and **Log out**. **Quick add** covers anything not on the menu.
 
 **Stack:** Python Flask backend (fetches + caches the menus) and a plain HTML/CSS/JS frontend (no build step).
@@ -65,6 +69,19 @@ Only today's menu is sent, and results are cached, so repeat taps don't cost any
 
 If the button shows an error: `401` means the key is wrong, `400`/`404` means the model name is wrong, and "Couldn't reach the AI" is a network problem.
 
+### Turn on favorite dish alerts
+
+Starring and the Settings card work with no setup. To have the alerts actually go out each morning on Render:
+
+1. **Make a cron secret.** Run `python -c "import secrets; print(secrets.token_hex(24))"` and put the result in `.env` as `CRON_SECRET=...`.
+2. **Render:** add `CRON_SECRET` (same value) in your service's **Environment** tab.
+3. **GitHub:** in the repo, go to **Settings → Secrets and variables → Actions** and add two repository secrets:
+   - `MAX_ALERT_URL`: your site's address, e.g. `https://max-alert.onrender.com`
+   - `CRON_SECRET`: the same value again
+4. Test it: **Actions → Daily favorite alerts → Run workflow**. The log should end in `HTTP 200` (or `"skipped": "too early"` before 7 AM).
+
+Why the GitHub Action: Render's free plan puts the app to sleep after about 15 minutes with no visitors, so a timer inside the app wouldn't fire. The workflow (`.github/workflows/daily-alerts.yml`) wakes it at 7:15 AM campus time, waits while it downloads today's menu, and calls `POST /api/cron/daily`. As a backup, the first page visit after 7 AM runs the same check. Each person gets at most one alert a day no matter how many times it runs. GitHub sometimes starts scheduled runs late (up to an hour at busy times). If that matters, a free service like cron-job.org can call the same URL with the header `Authorization: Bearer <CRON_SECRET>`.
+
 ### Get alerted if menus stop updating (recommended)
 
 The app repairs itself when Sodexo rotates its key or starts a new menu (see "If it breaks"). If it can't, it can ping you. Easiest option, free push notifications with no account:
@@ -100,6 +117,7 @@ Tests never download the real menus or hours page.
 | `SODEXO_API_KEY` | Real menus (without it: demo mode) |
 | `ANTHROPIC_API_KEY` | "Anything good?" button |
 | `ALERT_WEBHOOK_URL` | Optional: alerts if menus stop updating |
+| `CRON_SECRET` | Favorite dish alerts (see "Turn on favorite dish alerts") |
 | `ANTHROPIC_MODEL`, `REFRESH_HOURS`, ... | Optional: see "Settings" below |
 
 `locations.json` is committed, so the deployed app gets the same location and menu IDs you have locally.
@@ -208,6 +226,7 @@ Browser ──GET/POST /api/ratings──▶ ratings.py ──▶ database (dish
 | `sodexo.py` | Calls the Sodexo API, normalizes the JSON, renames and orders stations |
 | `hours.py` | Reads and caches the GCSU hours page; open/closed status and weekly hours |
 | `ratings.py` | Thumbs up/down API |
+| `favorites.py` | Starred dishes, ntfy topics, the morning alert and `/api/cron/daily` |
 | `alerts.py` | Sends the "menus stopped updating" webhook alerts |
 | `summary.py` | "Anything good?" prompt + Anthropic API call |
 | `auth.py` | Sign up / log in / log out (Flask-Login) |
@@ -218,15 +237,22 @@ Browser ──GET/POST /api/ratings──▶ ratings.py ──▶ database (dish
 | `static/account.js` | Log in button, profile menu, log in / sign up dialog, import prompt |
 | `static/plate.js` | My Plate sheet, Quick add, My Calories and Settings views |
 | `static/hours.js` | Hours tab |
+| `static/favorites.js` | ☆ on each dish, Favorite dish alerts card in Settings |
+| `static/pwa.js` | Registers the service worker, "Install Max Alert" card |
+| `static/sw.js` | Service worker: saves the last menu for bad signal (served at `/sw.js`) |
+| `static/manifest.webmanifest`, `static/icons/` | App name, colors and icons for Add to Home Screen |
 | `config.py` | Settings, station names/order, fallback meal hours, location loading |
 | `discover.py` | Finds location IDs, menu IDs and the API key (also used for self-repair) |
 | `demo_data.py` | Fake menus for demo mode |
 | `static/` | Frontend (`index.html`, `app.js`, `style.css`, plus the files above) |
 | `render.yaml` | Render deploy settings |
+| `.github/workflows/daily-alerts.yml` | Wakes the app each morning to send favorite alerts |
 
 Files the app writes in `data/` (not in git): `menu_cache.json`, `hours_cache.json`, `maxalert.db`, and `sodexo_override.json` (only after a self-repair).
 
-**Other API routes:** `GET /api/menus` (everything the menu page needs), `GET /api/hours`, `GET /api/health` (`menus_ok`, last success), `GET /api/ratings`, `POST /api/ratings` with `{"dish": "...", "vote": 1 | -1 | 0}`.
+**Other API routes:** `GET /api/menus` (everything the menu page needs), `GET /api/hours`, `GET /api/health` (`menus_ok`, last success), `GET /api/ratings`, `POST /api/ratings` with `{"dish": "...", "vote": 1 | -1 | 0}`. Favorites (need a login): `GET /api/favorites`, `POST /api/favorites` with `{"dish": "...", "on": true | false}`, `PUT /api/favorites/alerts` with `{"enabled": true}`, `POST /api/favorites/alerts/test`. Scheduler: `POST /api/cron/daily` with `Authorization: Bearer <CRON_SECRET>` (answers `503` with `"retry": true` while today's menu is still downloading).
+
+**Updating the installed app:** the service worker always checks the network first, so a deploy shows up the next time the app is opened with signal. If you rename or remove one of the files listed in `SHELL_FILES` in `static/sw.js`, update that list (a test checks it), and bump `VERSION` there to clear what phones have saved.
 
 ### Settings
 
@@ -244,6 +270,11 @@ All optional, set in `.env` locally or in Render's Environment tab:
 | `REFRESH_HOURS` | `3` | How often menus are downloaded again |
 | `ALERT_WEBHOOK_URL` | (none) | ntfy/Discord/Slack URL for stale-menu alerts |
 | `ALERT_AFTER_HOURS` | `12` | How long downloads must fail before an alert |
+| `CRON_SECRET` | (none, so `/api/cron/daily` is off) | Secret the morning wake-up must send |
+| `FAVORITE_ALERT_TIME` | `07:00` | Earliest time (campus, 24h) favorite alerts go out |
+| `FAVORITE_ALERTS_ON_VISIT` | on | Also run the morning check on the first visit after that time |
+| `NTFY_SERVER` | `https://ntfy.sh` | ntfy server for favorite alerts (if you self-host one) |
+| `PUBLIC_URL` | the address the site was reached at | Link opened when an alert is tapped |
 | `DEMO_MODE` | off | `1` forces sample data |
 | `PORT` | `5000` | Port for `python app.py` |
 
@@ -251,7 +282,7 @@ All optional, set in `.env` locally or in Render's Environment tab:
 
 **Setup:** run `pip install -r requirements.txt`. That's it: on first start the app
 - creates `SECRET_KEY` in `.env` if it's missing (it signs login cookies; keep it secret, and changing it logs everyone out)
-- creates the SQLite database `data/maxalert.db` with the `users`, `logged_meals`, `logged_items` and `dish_votes` tables
+- creates the SQLite database `data/maxalert.db` with the `users`, `logged_meals`, `logged_items`, `dish_votes`, `favorites` and `alert_settings` tables
 
 You can also create the tables yourself with `flask --app app init-db`. Starting the app never deletes data. To start over, stop the app and delete `data/maxalert.db`. To use another database (e.g. Postgres when hosting), set `DATABASE_URL` and install a driver for it (see "Deploy on Render").
 
