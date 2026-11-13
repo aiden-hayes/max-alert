@@ -6,3 +6,5 @@ python-dotenv>=1.0
 # Optional, only for `python discover.py` browser method:
 # playwright>=1.45
 gunicorn>=22.0
+# Postgres driver, used when DATABASE_URL points at a hosted database (see README)
+psycopg[binary]>=3.2

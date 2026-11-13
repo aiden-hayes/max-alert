@@ -6,7 +6,13 @@ A mobile-first web app that shows what the GCSU dining hall (The MAX) is serving
 
 **Features:** current/next meal on the home screen, date picker + meal tabs, location filter (it appears automatically when there's more than one location), dietary badges and filters, week-wide search, and an "Anything good?" button that gets a casual AI summary of today's menu.
 
-**Menu layout:** stations (Grill, Pizza, Deli...) are collapsible sections labeled like "Grill (8)". They start collapsed except the one you opened last, and there's **Expand all / Collapse all**. The **Proteins** button lists protein-focused dishes (chicken, beef, fish, eggs, tofu...) from every station, highest protein first.
+**Follows the clock:** the page opens on the meal being served now and switches by itself when the next meal starts, even in a tab left open all day. If you pick a different meal, it goes back to following the clock at the next meal change. When The MAX is closed, the top card says **"The MAX is closed · Opens at …"** with the next meal underneath.
+
+**Menu layout:** stations are collapsible sections labeled like "Main Grill Area (8)". They start collapsed except the one you opened last, and there's **Expand all / Collapse all**. Some of Sodexo's station names are swapped for clearer ones (Bliss → Dessert, Grown → Vegetarian, Showcase → Main Grill Area, Stacked → Sandwich Area, Mix → Salad). Savory, Main Grill Area, Simply 3 and Slices come first; Vegetarian and Dessert come last. Both the names and the order are set in `STATION_NAMES`, `STATIONS_FIRST` and `STATIONS_LAST` in `config.py`. The **Proteins** button lists protein-focused dishes (chicken, beef, fish, eggs, tofu...) from every station, highest protein first.
+
+**Thumbs up/down:** every dish has 👍/👎 with vote counts, plus "% liked" once it has 3 votes. Ratings belong to the dish name, so a dish keeps its rating when it comes back. Each person gets one vote per dish (per account, or per browser when logged out), and only dishes on this week's menu can be rated.
+
+**Hours tab:** live open/closed status, today's hours and the full week for The MAX, Chick-fil-A, Einstein Bros., Ibasho Sushi, Books & Brew, Pizza Hut and The Mini. The hours come from the GCSU Dining hours page, break and holiday hours included.
 
 **Accounts + Build Your Plate:** the menu never needs a login. Tap **+** on any dish to add it to My Plate (a bottom sheet), adjust servings in half steps, and see running calories/protein/carbs/fat. **Log this meal** saves to your account; if you're logged out it asks you to log in or sign up first. From the profile icon (top right): **My Calories** (today's meals, totals, goal progress, edit/delete), **Settings** (calorie goal) and **Log out**. **Quick add** covers anything not on the menu.
 
@@ -55,7 +61,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-haiku-4-5
 ```
 
-Only today's menu is sent, and results are cached, so repeat taps don't cost anything. Without a key, the button shows a friendly "not set up yet" message.
+Only today's menu is sent, and results are cached, so repeat taps don't cost anything. Without a key, the button shows a friendly "not set up yet" message. When you create the key in the Anthropic Console, pick **"Somewhere else" (API key)**. The keyless sign-in options don't work with this app. `ANTHROPIC_MODEL` is optional.
+
+If the button shows an error: `401` means the key is wrong, `400`/`404` means the model name is wrong, and "Couldn't reach the AI" is a network problem.
 
 ### Get alerted if menus stop updating (recommended)
 
@@ -76,6 +84,34 @@ You get a message after 12 hours of failed downloads (`ALERT_AFTER_HOURS`), a re
 pip install pytest
 python -m pytest -q
 ```
+
+Tests never download the real menus or hours page.
+
+---
+
+## Deploy on Render
+
+`render.yaml` is a Render Blueprint for a free web service. It runs `gunicorn`, generates `SECRET_KEY` and sets `SECURE_COOKIES=1`. Render redeploys every time you push to GitHub.
+
+**Secrets never go in git.** `.env` is in `.gitignore`. On Render, add each secret once under your service → **Environment**, and it carries over to every deploy:
+
+| Variable | Needed for |
+|---|---|
+| `SODEXO_API_KEY` | Real menus (without it: demo mode) |
+| `ANTHROPIC_API_KEY` | "Anything good?" button |
+| `ALERT_WEBHOOK_URL` | Optional: alerts if menus stop updating |
+| `ANTHROPIC_MODEL`, `REFRESH_HOURS`, ... | Optional: see "Settings" below |
+
+`locations.json` is committed, so the deployed app gets the same location and menu IDs you have locally.
+
+**The free plan erases `data/` on every deploy and restart.** For the menu and hours caches that doesn't matter, since they're downloaded again. But the default SQLite database (`data/maxalert.db`) lives there too, so **without `DATABASE_URL`, accounts, calorie logs and dish ratings are wiped each time you push**. Use a free hosted Postgres database instead:
+
+1. Sign up at https://neon.tech (free, no card) and create a project. Pick the region closest to your Render service (e.g. US East for Render's Virginia region, AWS US West for Oregon).
+2. On the project dashboard, click **Connect** and copy the connection string (`postgresql://...neon.tech/neondb?sslmode=require`).
+3. On Render: your service → **Environment** → add `DATABASE_URL` with that string → **Save, rebuild, and deploy**.
+4. Check the deploy logs for errors, then sign up on the live site, push any change, and confirm you're still logged in afterward.
+
+The app creates the tables on first start, and you can paste the string exactly as given: `postgres://` and `postgresql://` both work (the `psycopg` driver is already in `requirements.txt`). Keep the string secret, since it contains the database password. Accounts made before the switch were in the wiped SQLite file and don't carry over.
 
 ---
 
@@ -126,7 +162,7 @@ python nutrition_report.py --raw   # also lists every field Sodexo sends per ite
 
 Which GCSU items are missing nutrition isn't known ahead of time. Nutrition was built and tested against Sodexo's response format and demo data, not GCSU's live feed, so the report above is how you find out. Retail spots (Chick-fil-A, Pizza Hut, Ibasho Sushi, The Mini) didn't show a menu API call in `discover.py`, so they have no menu or nutrition in the app.
 
-**5. Meal times.** The API gives meal *names* but not times. Times live in `MEAL_HOURS` in `config.py`, taken from The MAX's posted Fall 2025 hours. **Update these each semester.** They only decide which meal the home screen shows as "Serving now" / "Up next".
+**5. Meal times.** The API gives meal *names* but not times. Times come from The MAX's entry on the GCSU Dining hours page (`georgiacollege.sodexomyway.com/en-us/locations/hours`), the same data the Hours tab shows, so break, holiday and weather hours are used automatically. `hours.py` reads them from the `window.__PRELOADED_STATE__` JSON in that page. It refreshes every 6 hours in the background and keeps the last good copy in `data/hours_cache.json`. If a meal isn't on the hours page (or the page can't be read), the app falls back to `MEAL_HOURS` in `config.py` (Fall 2025 hours). Meal times decide which meal shows as "Serving now" / "Up next" and when the page switches meals.
 
 ### If it breaks
 
@@ -140,7 +176,8 @@ The table is for when the automatic fix doesn't work:
 | `404` in logs | Location/menu ID changed | Rerun `discover.py`, or copy the new numbers from the DevTools request URL into `locations.json` |
 | Errors about "expected a list of meals" or missing fields | Sodexo changed the JSON shape | Look at the new response in DevTools → Preview, then update `normalize()` in `sodexo.py` |
 | URL is no longer `/v0.2/...` | New API version | Set `SODEXO_API_URL` in `.env` to the new pattern (keep `{location_id}` and `{menu_id}`) |
-| Wrong meal highlighted as "Serving now" | Hours changed | Edit `MEAL_HOURS` in `config.py` |
+| Wrong meal highlighted as "Serving now" | The hours page is wrong or couldn't be read (check `/api/hours` and the logs) | If GCSU's page is right but unreadable, update the parsing in `hours.py`; otherwise edit the fallback `MEAL_HOURS` in `config.py` |
+| Hours tab is empty or out of date | GCSU changed the hours page | Look for `window.__PRELOADED_STATE__` in the page source and update `hours.py` |
 
 When a refresh fails, the app keeps showing the last good menu with its "Updated …" time and retries every 15 minutes.
 
@@ -160,35 +197,63 @@ Browser ──GET /api/menus──▶ Flask (app.py)
                          menu_store.py ──▶ sodexo.py ──▶ api-prd.sodexomyway.net
                                            (7 days × each location, 4 at a time, 2 tries each)
 Browser ──POST /api/summary──▶ summary.py ──▶ Anthropic API
+Browser ──GET /api/hours────▶ hours.py ──▶ GCSU Dining hours page (every 6h, data/hours_cache.json)
+Browser ──GET/POST /api/ratings──▶ ratings.py ──▶ database (dish_votes)
 ```
 
 | File | What it does |
 |---|---|
-| `app.py` | Routes, "current or next meal" logic |
-| `menu_store.py` | Caching, background refresh, keeps old data when a fetch fails |
-| `sodexo.py` | Calls the Sodexo API and normalizes the JSON |
+| `app.py` | Routes, "current or next meal" logic, meal times, "The MAX is closed" status |
+| `menu_store.py` | Caching, background refresh, keeps old data when a fetch fails, self-repair |
+| `sodexo.py` | Calls the Sodexo API, normalizes the JSON, renames and orders stations |
+| `hours.py` | Reads and caches the GCSU hours page; open/closed status and weekly hours |
+| `ratings.py` | Thumbs up/down API |
+| `alerts.py` | Sends the "menus stopped updating" webhook alerts |
 | `summary.py` | "Anything good?" prompt + Anthropic API call |
 | `auth.py` | Sign up / log in / log out (Flask-Login) |
 | `tracker.py` | Calorie log API for the logged-in user |
-| `models.py` | Database tables: users, logged meals, logged items |
+| `models.py` | Database tables: users, logged meals, logged items, dish votes |
 | `logbook.py` | Log validation + saving, and the one-time import of old logs |
 | `nutrition_report.py` | Shows how much nutrition data the real menu has |
 | `static/account.js` | Log in button, profile menu, log in / sign up dialog, import prompt |
 | `static/plate.js` | My Plate sheet, Quick add, My Calories and Settings views |
-| `config.py` | Settings, meal hours, location loading |
-| `discover.py` | Finds location IDs, menu IDs and the API key |
+| `static/hours.js` | Hours tab |
+| `config.py` | Settings, station names/order, fallback meal hours, location loading |
+| `discover.py` | Finds location IDs, menu IDs and the API key (also used for self-repair) |
 | `demo_data.py` | Fake menus for demo mode |
-| `static/` | Frontend (`index.html`, `app.js`, `style.css`) |
+| `static/` | Frontend (`index.html`, `app.js`, `style.css`, plus the files above) |
+| `render.yaml` | Render deploy settings |
 
-Settings (all optional, in `.env`): `REFRESH_HOURS` (default 3), `DEMO_MODE=1` to force demo data, `PORT`, `ANTHROPIC_MODEL`.
+Files the app writes in `data/` (not in git): `menu_cache.json`, `hours_cache.json`, `maxalert.db`, and `sodexo_override.json` (only after a self-repair).
+
+**Other API routes:** `GET /api/menus` (everything the menu page needs), `GET /api/hours`, `GET /api/health` (`menus_ok`, last success), `GET /api/ratings`, `POST /api/ratings` with `{"dish": "...", "vote": 1 | -1 | 0}`.
+
+### Settings
+
+All optional, set in `.env` locally or in Render's Environment tab:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SODEXO_API_KEY` | (none, so demo mode) | Sodexo menu API key (`discover.py` fills it in) |
+| `SODEXO_API_URL` | `.../v0.2/data/menu/{location_id}/{menu_id}` | Change it if Sodexo moves the API |
+| `ANTHROPIC_API_KEY` | (none) | Turns on "Anything good?" |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5` | Model for "Anything good?" |
+| `SECRET_KEY` | generated into `.env` | Signs login cookies |
+| `DATABASE_URL` | `sqlite:///data/maxalert.db` | Database location (see "Deploy on Render") |
+| `SECURE_COOKIES` | off | Set to `1` when served over HTTPS |
+| `REFRESH_HOURS` | `3` | How often menus are downloaded again |
+| `ALERT_WEBHOOK_URL` | (none) | ntfy/Discord/Slack URL for stale-menu alerts |
+| `ALERT_AFTER_HOURS` | `12` | How long downloads must fail before an alert |
+| `DEMO_MODE` | off | `1` forces sample data |
+| `PORT` | `5000` | Port for `python app.py` |
 
 ## Accounts and the database
 
 **Setup:** run `pip install -r requirements.txt`. That's it: on first start the app
 - creates `SECRET_KEY` in `.env` if it's missing (it signs login cookies; keep it secret, and changing it logs everyone out)
-- creates the SQLite database `data/maxalert.db` with the `users`, `logged_meals` and `logged_items` tables
+- creates the SQLite database `data/maxalert.db` with the `users`, `logged_meals`, `logged_items` and `dish_votes` tables
 
-You can also create the tables yourself with `flask --app app init-db`. Starting the app never deletes data. To start over, stop the app and delete `data/maxalert.db`. To use another database (e.g. Postgres when hosting), set `DATABASE_URL` in `.env`.
+You can also create the tables yourself with `flask --app app init-db`. Starting the app never deletes data. To start over, stop the app and delete `data/maxalert.db`. To use another database (e.g. Postgres when hosting), set `DATABASE_URL` and install a driver for it (see "Deploy on Render").
 
 **Security:**
 - Passwords are hashed with werkzeug (scrypt + salt). The plain password is never stored or logged.
@@ -208,4 +273,4 @@ You can also create the tables yourself with `flask --app app init-db`. Starting
 
 ## Be a good neighbor
 
-Sodexo's site is for personal, non-commercial use. The app caches aggressively (about 8 requests per location every 3 hours), identifies itself honestly in its User-Agent, and doesn't pound the server. Keep it that way if you share it with friends. Allergen and nutrition info comes from Sodexo and can be wrong or out of date, so anyone with a serious allergy should confirm with dining staff.
+Sodexo's site is for personal, non-commercial use. The app caches aggressively (about 8 requests per location every 3 hours, plus the hours page every 6 hours), identifies itself honestly in its User-Agent, and doesn't pound the server. Keep it that way if you share it with friends. Allergen and nutrition info comes from Sodexo and can be wrong or out of date, so anyone with a serious allergy should confirm with dining staff.

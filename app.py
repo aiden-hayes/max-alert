@@ -24,6 +24,8 @@ hours_store = hours.HoursStore()
 app.config.update(
     SECRET_KEY=config.SECRET_KEY,
     SQLALCHEMY_DATABASE_URI=config.DATABASE_URL,
+    # Hosted Postgres (e.g. Neon) closes idle connections; check before use and reconnect.
+    SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 300},
     SESSION_COOKIE_SAMESITE="Lax", REMEMBER_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=config.SECURE_COOKIES, REMEMBER_COOKIE_SECURE=config.SECURE_COOKIES,
     REMEMBER_COOKIE_DURATION=dt.timedelta(days=60),
@@ -41,7 +43,7 @@ with app.app_context():
 def init_db():
     """Create the database tables (they're also created automatically on startup)."""
     db.create_all()
-    print(f"Database ready: {config.DATABASE_URL}")
+    print(f"Database ready: {db.engine.url.render_as_string(hide_password=True)}")
 
 # Used when config.MEAL_HOURS has no entry for a meal name on that day.
 DEFAULT_HOURS = {

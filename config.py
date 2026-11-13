@@ -36,7 +36,11 @@ def _secret_key() -> str:
 
 SECRET_KEY = _secret_key()
 # SQLite file in data/ by default. Any SQLAlchemy URL works (e.g. Postgres when hosting).
-DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DATA_DIR / 'maxalert.db'}")
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip() or f"sqlite:///{DATA_DIR / 'maxalert.db'}"
+# Hosts hand out "postgres://..." or "postgresql://..."; point both at the installed psycopg driver.
+for _prefix in ("postgres://", "postgresql://"):
+    if DATABASE_URL.startswith(_prefix):
+        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len(_prefix):]
 # Set to 1 when the site is served over HTTPS so login cookies are never sent unencrypted.
 SECURE_COOKIES = os.environ.get("SECURE_COOKIES", "").lower() in {"1", "true", "yes"}
 
