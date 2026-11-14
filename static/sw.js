@@ -9,7 +9,7 @@
 // Only public, read-only data is saved (pages, menus, hours, ratings). Logins, calorie
 // logs and favorites always go to the network, so nothing personal is kept here.
 // Bump VERSION to throw away everything saved by an older version.
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL = `maxalert-shell-${VERSION}`;
 const DATA = `maxalert-data-${VERSION}`;
 const NET_TIMEOUT_MS = 4000;
