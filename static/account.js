@@ -49,42 +49,98 @@ const Account = (() => {
     if (open) menu.querySelector("button").focus();
   }
 
-  // ---------- log in / sign up dialog ----------
+  // ---------- log in / sign up / forgot password dialog ----------
+  // Each is its own <form> in index.html with autocomplete="username" + "current-password"
+  // or "new-password", which is what iPhone Keychain and other password managers look for.
+  const form = (m) => $("authDialog").querySelector(`[data-form=${m}]`);
   function openDialog(which = "login", reason = "") {
-    mode = which;
     const d = $("authDialog");
-    d.querySelector("form").reset();
+    d.querySelectorAll("form").forEach((f) => f.reset());
     d.querySelector(".auth-reason").textContent = reason;
     d.querySelector(".auth-reason").hidden = !reason;
-    renderMode();
     if (!d.open) d.showModal();
-    d.querySelector("[name=email]").focus();
+    showMode(which);
   }
-  function renderMode() {
-    const d = $("authDialog"), signup = mode === "signup";
-    d.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mode === mode)));
-    d.querySelector(".confirm-row").hidden = !signup;
-    d.querySelector("[name=confirm]").required = signup;
-    d.querySelector("[name=password]").autocomplete = signup ? "new-password" : "current-password";
-    d.querySelector("button[type=submit]").textContent = signup ? "Create account" : "Log in";
-    d.querySelector(".auth-hint").textContent = signup ? "At least 8 characters." : "";
-    d.querySelector(".q-err").textContent = "";
+  function showMode(which) {
+    const d = $("authDialog"), email = form(mode)?.email.value;
+    mode = which;
+    d.querySelector(".auth-tabs").hidden = mode === "forgot";
+    d.querySelectorAll("[role=tab][data-mode]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mode === mode)));
+    d.querySelectorAll("form").forEach((f) => { f.hidden = f.dataset.form !== mode; f.querySelector(".q-err").textContent = ""; });
+    const f = form(mode);
+    if (email && !f.email.value) f.email.value = email;  // carry the typed email across
+    if (mode === "forgot") f.querySelector(".q-ok").hidden = true;
+    (f.email.value ? f.password || f.email : f.email).focus();
+  }
+  // Android/Chrome: offer to save the password (Safari decides on its own when the form closes).
+  async function savePassword(email, password) {
+    if (!window.PasswordCredential || !navigator.credentials) return;
+    try { await navigator.credentials.store(new PasswordCredential({ id: email, password, name: email })); }
+    catch { /* not supported or turned off */ }
+  }
+  async function loggedIn(u, email, password, msg) {
+    setUser(u);
+    Plate.toast(msg);
+    savePassword(email, password);
+    const next = pending; pending = null;
+    if (next) await next();
+    offerImport();
   }
   async function submit(e) {
     e.preventDefault();
-    const f = e.target, err = f.querySelector(".q-err"), btn = f.querySelector("button[type=submit]");
-    const email = f.email.value.trim(), password = f.password.value;
+    const f = e.target, which = f.dataset.form, err = f.querySelector(".q-err"), btn = f.querySelector("button[type=submit]");
+    const email = f.email.value.trim(), password = f.password ? f.password.value : "";
     err.textContent = "";
-    if (mode === "signup" && password !== f.confirm.value) { err.textContent = "Passwords don't match."; return; }
+    if (which === "signup" && password !== f.confirm.value) { err.textContent = "Passwords don't match."; return; }
     btn.disabled = true;
     try {
-      const { user: u } = await post(`/api/auth/${mode}`, { email, password });
+      if (which === "forgot") {
+        const r = await post("/api/auth/forgot", { email });
+        const ok = f.querySelector(".q-ok");
+        ok.textContent = r.message; ok.hidden = false;
+        return;
+      }
+      const { user: u } = await post(`/api/auth/${which}`, { email, password });
       $("authDialog").close();
-      setUser(u);
-      Plate.toast(mode === "signup" ? "Account created. You're logged in." : "Logged in");
-      const next = pending; pending = null;
-      if (next) await next();
-      offerImport();
+      await loggedIn(u, email, password, which === "signup" ? "Account created. You're logged in." : "Logged in");
+    } catch (x) {
+      err.textContent = x.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ---------- reset link from the email: https://site/#reset=TOKEN ----------
+  let resetToken = null;
+  async function openResetFromLink() {
+    const m = location.hash.match(/^#reset=([\w.-]+)$/);
+    if (!m) return;
+    resetToken = m[1];
+    history.replaceState(null, "", location.pathname + location.search);  // keep the token out of history
+    try {
+      const { email } = await post("/api/auth/reset/check", { token: resetToken });
+      const d = $("resetDialog"), f = d.querySelector("form");
+      f.reset(); f.email.value = email; f.querySelector(".q-err").textContent = "";
+      d.showModal();
+      f.password.focus();
+    } catch (x) {
+      resetToken = null;
+      openDialog("forgot");
+      form("forgot").querySelector(".q-err").textContent = x.message;
+    }
+  }
+  async function submitReset(e) {
+    e.preventDefault();
+    const f = e.target, err = f.querySelector(".q-err"), btn = f.querySelector("button[type=submit]");
+    const password = f.password.value;
+    err.textContent = "";
+    if (password !== f.confirm.value) { err.textContent = "Passwords don't match."; return; }
+    btn.disabled = true;
+    try {
+      const { user: u } = await post("/api/auth/reset", { token: resetToken, password });
+      resetToken = null;
+      $("resetDialog").close();
+      await loggedIn(u, f.email.value, password, "Password changed. You're logged in.");
     } catch (x) {
       err.textContent = x.message;
     } finally {
@@ -154,9 +210,14 @@ const Account = (() => {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") toggleMenu(false); });
   document.addEventListener("DOMContentLoaded", async () => {
     const d = $("authDialog");
-    d.querySelector("form").addEventListener("submit", submit);
-    d.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => { mode = b.dataset.mode; renderMode(); }));
-    d.querySelector("[data-auth=cancel]").addEventListener("click", () => { pending = null; d.close(); });
+    d.querySelectorAll("form").forEach((f) => f.addEventListener("submit", submit));
+    d.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => showMode(b.dataset.mode)));
+    d.querySelector("[data-auth=forgot]").addEventListener("click", () => showMode("forgot"));
+    d.querySelectorAll("[data-auth=cancel]").forEach((b) => b.addEventListener("click", () => { pending = null; d.close(); }));
+    const rd = $("resetDialog");
+    rd.querySelector("form").addEventListener("submit", submitReset);
+    rd.querySelector("[data-reset=cancel]").addEventListener("click", () => { resetToken = null; rd.close(); });
+    window.addEventListener("hashchange", openResetFromLink);
     const imp = $("importDialog");
     imp.querySelector("[data-import=yes]").addEventListener("click", () => importChoice(true));
     imp.querySelector("[data-import=no]").addEventListener("click", () => importChoice(false));
@@ -165,7 +226,8 @@ const Account = (() => {
       const res = await fetch("/api/auth/me");
       if (res.ok) setUser((await res.json()).user);
     } catch { /* offline: stay logged out in the UI */ }
-    offerImport();
+    if (location.hash.startsWith("#reset=")) openResetFromLink();
+    else offerImport();
   });
 
   return {

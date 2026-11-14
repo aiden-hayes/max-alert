@@ -19,3 +19,9 @@ services:
         sync: false
       - key: ALERT_WEBHOOK_URL
         sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false

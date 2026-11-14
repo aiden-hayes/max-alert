@@ -12,6 +12,7 @@ Tables are created automatically when the app starts (see app.py / `flask --app 
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
@@ -43,6 +44,14 @@ class User(UserMixin, db.Model):
 
     def check_password(self, password: str) -> bool:
         return check_password_hash(self.password_hash, password)
+
+    def password_stamp(self) -> str:
+        """Changes whenever the password changes. Stored in login cookies and reset links,
+        so changing the password logs out other devices and makes old reset links useless."""
+        return hashlib.sha256(self.password_hash.encode()).hexdigest()[:16]
+
+    def get_id(self) -> str:  # what Flask-Login keeps in the login cookie
+        return f"{self.id}:{self.password_stamp()}"
 
     def to_dict(self) -> dict:
         return {"email": self.email, "goal": self.calorie_goal, "import_offer_done": self.import_offer_done}

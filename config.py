@@ -84,9 +84,19 @@ FAVORITE_ALERT_TIME = os.environ.get("FAVORITE_ALERT_TIME", "07:00")  # campus t
 CRON_SECRET = os.environ.get("CRON_SECRET", "").strip()
 # Also run the morning check when someone opens the site after FAVORITE_ALERT_TIME.
 FAVORITE_ALERTS_ON_VISIT = os.environ.get("FAVORITE_ALERTS_ON_VISIT", "1").lower() in {"1", "true", "yes"}
-# Link opened when a notification is tapped. Default: the address the site was reached at.
-PUBLIC_URL = os.environ.get("PUBLIC_URL", "").strip()
+# The site's public address, used for links in notifications and password-reset emails.
+# Render sets RENDER_EXTERNAL_URL automatically; elsewhere set PUBLIC_URL.
+PUBLIC_URL = (os.environ.get("PUBLIC_URL", "").strip()
+              or os.environ.get("RENDER_EXTERNAL_URL", "").strip()).rstrip("/")
 MAX_FAVORITES = 100
+
+# --- Password reset emails -------------------------------------------------------
+# Sent through Brevo's email API (free plan: 300/day). Render's free plan blocks normal
+# SMTP email, so an HTTP email service is needed. See README "Turn on password reset emails".
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "").strip()
+MAIL_FROM = os.environ.get("MAIL_FROM", "").strip()          # a sender verified in Brevo
+MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "Max Alert").strip()
+ON_RENDER = bool(os.environ.get("RENDER"))
 
 # --- Dining locations ------------------------------------------------------
 # Each location needs Sodexo's location ID and menu ID. `python discover.py`

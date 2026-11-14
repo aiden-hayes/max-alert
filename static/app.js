@@ -53,8 +53,8 @@ function ratingHtml(item) {
   const total = r.up + r.down;
   const n = esc(item.name);
   return `<div class="rate">` + Favorites.starHtml(item) +
-    `<button type="button" class="vote" data-vote="1" data-dish="${n}" aria-pressed="${r.mine === 1}" aria-label="Thumbs up ${n}">👍<span>${r.up || ""}</span></button>` +
-    `<button type="button" class="vote" data-vote="-1" data-dish="${n}" aria-pressed="${r.mine === -1}" aria-label="Thumbs down ${n}">👎<span>${r.down || ""}</span></button>` +
+    `<button type="button" class="vote" data-vote="1" data-dish="${n}" aria-pressed="${r.mine === 1}" aria-label="Thumbs up ${n}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg><span>${r.up || ""}</span></button>` +
+    `<button type="button" class="vote" data-vote="-1" data-dish="${n}" aria-pressed="${r.mine === -1}" aria-label="Thumbs down ${n}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg><span>${r.down || ""}</span></button>` +
     (total >= 3 ? `<span class="liked">${Math.round((100 * r.up) / total)}% liked</span>` : "") + `</div>`;
 }
 
@@ -278,7 +278,7 @@ function renderMenu() {
       const open = openStations.has(st.name);
       html += `<section class="station coll${open ? " open" : ""}">
         <h2><button type="button" class="st-head" data-st="${esc(st.name)}" aria-expanded="${open}">
-          <span>${esc(st.name)} (${items.length})</span><span class="chev" aria-hidden="true"></span></button></h2>
+          <span>${esc(st.name)}<span class="st-count">${items.length}</span></span><span class="chev" aria-hidden="true"></span></button></h2>
         <div class="st-body"${open ? "" : " hidden"}>${items.map((i) => itemHtml(i, "", ctx)).join("")}</div></section>`;
     }
   }

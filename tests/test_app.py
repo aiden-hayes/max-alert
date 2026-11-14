@@ -718,3 +718,94 @@ def test_pwa_files_served(client):
         assert client.get(path).status_code == 200, path
     for resp in (sw, m):
         resp.close()
+
+
+# ---------- password reset ----------
+@pytest.fixture
+def mail(client, monkeypatch):
+    """Capture reset emails instead of sending them (and send right away, not in a thread)."""
+    import auth
+    import mailer
+    sent = []
+    monkeypatch.setattr(mailer, "send", lambda to, subject, text, html: sent.append((to, text)) or True)
+    monkeypatch.setattr(auth, "send_later", lambda fn, *a: fn(*a))
+    monkeypatch.setattr(auth.config, "PUBLIC_URL", "https://max.example")
+    for d in (auth._reset_ips, auth._reset_emails, auth._fails):
+        d.clear()
+    return sent
+
+
+def _token(text):
+    import re
+    m = re.search(r"https://max\.example/#reset=(\S+)", text)
+    assert m, text
+    return m.group(1)
+
+
+def test_forgot_password_full_flow(client, mail):
+    signup(client, "jimmy@gcsu.edu", "old password")
+    other = client.application.test_client()  # a second device, logged in
+    other.post("/api/auth/login", json={"email": "jimmy@gcsu.edu", "password": "old password"})
+    assert other.get("/api/auth/me").get_json()["user"]
+    client.post("/api/auth/logout", json={})
+
+    r = client.post("/api/auth/forgot", json={"email": "Jimmy@GCSU.edu"})
+    assert r.status_code == 200 and "If there's an account" in r.get_json()["message"]
+    assert len(mail) == 1 and mail[0][0] == "jimmy@gcsu.edu"
+    token = _token(mail[0][1])
+
+    assert client.post("/api/auth/reset/check", json={"token": token}).get_json() == {"email": "jimmy@gcsu.edu"}
+    short = client.post("/api/auth/reset", json={"token": token, "password": "short"})
+    assert short.status_code == 400 and "at least 8" in short.get_json()["error"]
+    ok = client.post("/api/auth/reset", json={"token": token, "password": "new password"})
+    assert ok.status_code == 200 and client.get("/api/auth/me").get_json()["user"]["email"] == "jimmy@gcsu.edu"
+
+    # Link is single use; the other device got logged out; only the new password works.
+    again = client.post("/api/auth/reset", json={"token": token, "password": "another one"})
+    assert again.status_code == 400 and "expired or was already used" in again.get_json()["error"]
+    assert other.get("/api/auth/me").get_json()["user"] is None
+    client.post("/api/auth/logout", json={})
+    assert client.post("/api/auth/login", json={"email": "jimmy@gcsu.edu", "password": "old password"}).status_code == 401
+    assert client.post("/api/auth/login", json={"email": "jimmy@gcsu.edu", "password": "new password"}).status_code == 200
+
+
+def test_forgot_password_doesnt_reveal_accounts(client, mail):
+    signup(client)
+    a = client.post("/api/auth/forgot", json={"email": "jimmy@gcsu.edu"})
+    b = client.post("/api/auth/forgot", json={"email": "nobody@gcsu.edu"})
+    assert a.status_code == b.status_code == 200 and a.get_json() == b.get_json()
+    assert [to for to, _ in mail] == ["jimmy@gcsu.edu"]
+    assert client.post("/api/auth/forgot", json={"email": "nope"}).status_code == 400
+
+
+def test_reset_links_expire_and_cant_be_forged(client, mail, monkeypatch):
+    import auth
+    signup(client)
+    client.post("/api/auth/forgot", json={"email": "jimmy@gcsu.edu"})
+    token = _token(mail[0][1])
+    for bad in ("", "garbage", token[:-2] + "xx"):
+        assert client.post("/api/auth/reset/check", json={"token": bad}).status_code == 400
+    monkeypatch.setattr(auth, "RESET_MAX_AGE_S", -1)
+    assert client.post("/api/auth/reset", json={"token": token, "password": "new password"}).status_code == 400
+
+
+def test_forgot_password_rate_limits(client, mail):
+    signup(client)
+    for _ in range(5):
+        assert client.post("/api/auth/forgot", json={"email": "jimmy@gcsu.edu"}).status_code == 200
+    assert len(mail) == 3  # per-email cap: the rest are quietly not sent
+    assert client.post("/api/auth/forgot", json={"email": "jimmy@gcsu.edu"}).status_code == 429  # per-IP cap
+
+
+def test_forgot_password_off_when_email_not_set_up(client, monkeypatch):
+    import mailer
+    monkeypatch.setattr(mailer, "mode", lambda: None)
+    r = client.post("/api/auth/forgot", json={"email": "jimmy@gcsu.edu"})
+    assert r.status_code == 503 and "aren't set up" in r.get_json()["error"]
+
+
+def test_login_form_uses_password_manager_names(client):
+    page = client.get("/").get_data(as_text=True)
+    assert page.count('autocomplete="username"') >= 4
+    assert 'autocomplete="current-password"' in page and 'autocomplete="new-password"' in page
+    assert 'passwordrules="minlength: 8' in page

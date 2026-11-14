@@ -17,20 +17,18 @@
 <body>
   <header class="top">
     <div class="wrap top-row">
-      <div>
-        <h1><button type="button" class="home" data-view="menu">Max Alert</button></h1>
-        <p class="sub" id="updated">Loading menus…</p>
+      <div class="brand">
+        <img class="logo" src="/static/icons/icon-192.png?v=2" alt="" width="36" height="36">
+        <div>
+          <h1><button type="button" class="home" data-view="menu">Max Alert</button></h1>
+          <p class="sub" id="updated">Loading menus…</p>
+        </div>
       </div>
       <div id="acct" class="acct"></div>
     </div>
   </header>
 
   <main class="wrap">
-    <div class="tabs nav-tabs" id="navTabs" role="tablist" aria-label="Section">
-      <button type="button" class="tab" role="tab" data-view="menu" aria-selected="true">Menu</button>
-      <button type="button" class="tab" role="tab" data-view="hours" aria-selected="false">Hours</button>
-    </div>
-
     <div id="install" class="install" role="region" aria-label="Install the app" hidden></div>
 
     <div id="menuView">
@@ -54,7 +52,7 @@
         <div id="ai" class="ai" hidden></div>
       </section>
 
-      <div class="chips" id="diets" aria-label="Dietary filters"></div>
+      <div class="chips scroll" id="diets" aria-label="Dietary filters"></div>
 
       <div id="content" aria-live="polite"></div>
     </div>
@@ -67,6 +65,16 @@
   <footer class="wrap foot">
     Menus and nutrition from GCSU Dining (Sodexo). Nutrition values are estimates. Always check posted allergen info before eating.
   </footer>
+
+  <!-- Bottom tab bar (icons: Lucide, ISC license) -->
+  <nav class="tabbar" id="navTabs" aria-label="Sections">
+    <div class="tabbar-in">
+      <button type="button" data-view="menu" aria-current="page"><span class="pill"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg></span>Menu</button>
+      <button type="button" data-view="hours"><span class="pill"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>Hours</button>
+      <button type="button" data-view="calories"><span class="pill"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span>Calories</button>
+      <button type="button" data-view="settings"><span class="pill"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg></span>Settings</button>
+    </div>
+  </nav>
 
   <!-- Build Your Plate -->
   <div id="plateBar" class="plate-bar" hidden></div>
@@ -93,21 +101,60 @@
     </form>
   </dialog>
 
+  <!-- Separate forms with standard autocomplete names, so iPhone Keychain, Google Password
+       Manager and other password managers offer saved logins and strong new passwords. -->
   <dialog id="authDialog" class="quick">
-    <form novalidate>
-      <div class="auth-tabs" role="tablist">
-        <button type="button" role="tab" data-mode="login">Log in</button>
-        <button type="button" role="tab" data-mode="signup">Sign up</button>
-      </div>
-      <p class="auth-reason muted" hidden></p>
-      <label>Email <input name="email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" required></label>
+    <div class="auth-tabs" role="tablist">
+      <button type="button" role="tab" data-mode="login">Log in</button>
+      <button type="button" role="tab" data-mode="signup">Sign up</button>
+    </div>
+    <p class="auth-reason muted" hidden></p>
+    <form data-form="login" action="/api/auth/login" method="post" novalidate>
+      <label>Email <input name="email" type="email" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" required></label>
       <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-      <small class="auth-hint muted"></small>
-      <label class="confirm-row" hidden>Confirm password <input name="confirm" type="password" autocomplete="new-password"></label>
+      <button type="button" class="linkish forgot-link" data-auth="forgot">Forgot password?</button>
       <p class="q-err" role="alert"></p>
       <div class="p-actions">
         <button type="button" class="ghost" data-auth="cancel">Not now</button>
         <button type="submit" class="primary">Log in</button>
+      </div>
+    </form>
+    <form data-form="signup" action="/api/auth/signup" method="post" novalidate hidden>
+      <label>Email <input name="email" type="email" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" required></label>
+      <label>Password <input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" passwordrules="minlength: 8; maxlength: 128;" required></label>
+      <small class="auth-hint muted">At least 8 characters. Your phone can suggest a strong one.</small>
+      <label>Confirm password <input name="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" passwordrules="minlength: 8; maxlength: 128;" required></label>
+      <p class="q-err" role="alert"></p>
+      <div class="p-actions">
+        <button type="button" class="ghost" data-auth="cancel">Not now</button>
+        <button type="submit" class="primary">Create account</button>
+      </div>
+    </form>
+    <form data-form="forgot" action="/api/auth/forgot" method="post" novalidate hidden>
+      <h2>Reset your password</h2>
+      <p class="muted">Enter the email you signed up with and we'll send you a link to choose a new password.</p>
+      <label>Email <input name="email" type="email" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" required></label>
+      <p class="q-ok" role="status" hidden></p>
+      <p class="q-err" role="alert"></p>
+      <div class="p-actions">
+        <button type="button" class="ghost" data-mode="login">Back to log in</button>
+        <button type="submit" class="primary">Send link</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="resetDialog" class="quick">
+    <form action="/api/auth/reset" method="post" novalidate>
+      <h2>Choose a new password</h2>
+      <!-- Read-only, but it tells the password manager which saved login to update. -->
+      <label>Email <input name="email" type="email" autocomplete="username" readonly></label>
+      <label>New password <input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" passwordrules="minlength: 8; maxlength: 128;" required></label>
+      <small class="auth-hint muted">At least 8 characters. Your phone can suggest a strong one.</small>
+      <label>Confirm new password <input name="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" passwordrules="minlength: 8; maxlength: 128;" required></label>
+      <p class="q-err" role="alert"></p>
+      <div class="p-actions">
+        <button type="button" class="ghost" data-reset="cancel">Cancel</button>
+        <button type="submit" class="primary">Save password</button>
       </div>
     </form>
   </dialog>

@@ -310,15 +310,20 @@ const Plate = (() => {
 
   // ---------- views + toast ----------
   const PUBLIC_VIEWS = ["menu", "hours"];  // no login needed
-  function setView(v) {
-    if (!PUBLIC_VIEWS.includes(v) && !Account.user) v = "menu";
+  const LOGIN_REASON = { calories: "Log in to see your calorie log.", settings: "Log in to set a calorie goal and favorite dish alerts." };
+  function setView(v, fromTap = false) {
+    if (!PUBLIC_VIEWS.includes(v) && !Account.user) {
+      if (fromTap) return Account.requireLogin(LOGIN_REASON[v], () => setView(v));
+      v = "menu";
+    }
     view = v;
     $("menuView").hidden = v !== "menu";
     $("hoursView").hidden = v !== "hours";
     $("caloriesView").hidden = v !== "calories";
     $("settingsView").hidden = v !== "settings";
-    $("navTabs").hidden = !PUBLIC_VIEWS.includes(v);
-    for (const t of $("navTabs").querySelectorAll("[data-view]")) t.setAttribute("aria-selected", t.dataset.view === v);
+    for (const t of $("navTabs").querySelectorAll("[data-view]")) {
+      if (t.dataset.view === v) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
+    }
     if (v === "hours") Hours.show();
     if (v === "calories") renderCalories();
     if (v === "settings") renderSettings();
@@ -348,7 +353,7 @@ const Plate = (() => {
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-act],[data-view]");
     if (!b) { if (e.target.id === "backdrop") close(); return; }
-    if (b.dataset.view) return setView(b.dataset.view);
+    if (b.dataset.view) return setView(b.dataset.view, true);
     if (!b.dataset.act) return;
     const it = plate.items.find((i) => i.uid === b.dataset.uid);
     switch (b.dataset.act) {

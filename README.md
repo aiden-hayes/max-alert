@@ -18,7 +18,7 @@ A mobile-first web app that shows what the GCSU dining hall (The MAX) is serving
 
 **Add to Home Screen:** the site installs like an app (its own icon, opens full screen). Android/Chrome shows an **Install** button; on iPhone, Safari shows the Share → Add to Home Screen steps. A service worker (`static/sw.js`) keeps the last menu, hours and ratings on the phone. With bad or no signal, the app opens with that saved menu and a "No connection" note instead of an error. Logins, calorie logs and favorites are never saved on the phone.
 
-**Accounts + Build Your Plate:** the menu never needs a login. Tap **+** on any dish to add it to My Plate (a bottom sheet), adjust servings in half steps, and see running calories/protein/carbs/fat. **Log this meal** saves to your account; if you're logged out it asks you to log in or sign up first. From the profile icon (top right): **My Calories** (today's meals, totals, goal progress, edit/delete), **Settings** (calorie goal) and **Log out**. **Quick add** covers anything not on the menu.
+**Accounts + Build Your Plate:** the menu never needs a login. Tap **+** on any dish to add it to My Plate (a bottom sheet), adjust servings in half steps, and see running calories/protein/carbs/fat. **Log this meal** saves to your account; if you're logged out it asks you to log in or sign up first. **Forgot password?** on the log-in screen emails a reset link (see "Turn on password reset emails"). The log-in and sign-up forms work with password managers: iPhone Keychain offers saved logins and suggests a strong password when signing up, and Android/Chrome offers to save it. From the profile icon (top right): **My Calories** (today's meals, totals, goal progress, edit/delete), **Settings** (calorie goal) and **Log out**. **Quick add** covers anything not on the menu.
 
 **Stack:** Python Flask backend (fetches + caches the menus) and a plain HTML/CSS/JS frontend (no build step).
 
@@ -106,6 +106,22 @@ Tests never download the real menus or hours page.
 
 ---
 
+### Turn on password reset emails
+
+Emails go through **Brevo**. Its free plan allows 300 emails a day and doesn't need your own domain. Render's free plan blocks normal (SMTP) email, so the app uses Brevo's web API instead.
+
+1. Sign up at [brevo.com](https://www.brevo.com) (free plan).
+2. **Senders, Domains & Dedicated IPs → Senders → Add a sender:** use the address emails should come from (your own email is fine) and click the confirmation link Brevo sends you.
+3. **SMTP & API → API keys → Generate a new API key.** Copy it (it starts with `xkeysib-`).
+4. **Render → Environment:** add `BREVO_API_KEY` (the key) and `MAIL_FROM` (the sender address from step 2). Optionally add `MAIL_FROM_NAME` (default "Max Alert").
+5. Test it: on the site, tap **Log in → Forgot password?** and enter your account email.
+
+Locally, without these settings, the email is printed in the terminal running `python app.py` instead, so you can test the whole flow. On Render without them, **Forgot password?** says reset emails aren't set up (links are never written to Render's logs).
+
+Emails sent from a Gmail or school address through Brevo can land in spam, since Gmail can't confirm Brevo is allowed to send for that address. If that happens a lot, adding your own domain in Brevo (and sending from it) fixes it.
+
+**How resets work:** the link looks like `https://your-site/#reset=…`. It works for 1 hour and only once, and the part after `#` never reaches the server or its logs. Asking for a link gives the same answer whether or not the email has an account. Changing the password logs out every other device. Limits: 3 emails per address and 5 requests per IP per hour.
+
 ## Deploy on Render
 
 `render.yaml` is a Render Blueprint for a free web service. It runs `gunicorn`, generates `SECRET_KEY` and sets `SECURE_COOKIES=1`. Render redeploys every time you push to GitHub.
@@ -118,6 +134,7 @@ Tests never download the real menus or hours page.
 | `ANTHROPIC_API_KEY` | "Anything good?" button |
 | `ALERT_WEBHOOK_URL` | Optional: alerts if menus stop updating |
 | `CRON_SECRET` | Favorite dish alerts (see "Turn on favorite dish alerts") |
+| `BREVO_API_KEY`, `MAIL_FROM` | Password reset emails (see "Turn on password reset emails") |
 | `ANTHROPIC_MODEL`, `REFRESH_HOURS`, ... | Optional: see "Settings" below |
 
 `locations.json` is committed, so the deployed app gets the same location and menu IDs you have locally.
@@ -229,7 +246,8 @@ Browser ──GET/POST /api/ratings──▶ ratings.py ──▶ database (dish
 | `favorites.py` | Starred dishes, ntfy topics, the morning alert and `/api/cron/daily` |
 | `alerts.py` | Sends the "menus stopped updating" webhook alerts |
 | `summary.py` | "Anything good?" prompt + Anthropic API call |
-| `auth.py` | Sign up / log in / log out (Flask-Login) |
+| `auth.py` | Sign up / log in / log out (Flask-Login), password reset links |
+| `mailer.py` | Sends email (password resets) through Brevo |
 | `tracker.py` | Calorie log API for the logged-in user |
 | `models.py` | Database tables: users, logged meals, logged items, dish votes |
 | `logbook.py` | Log validation + saving, and the one-time import of old logs |
@@ -274,7 +292,10 @@ All optional, set in `.env` locally or in Render's Environment tab:
 | `FAVORITE_ALERT_TIME` | `07:00` | Earliest time (campus, 24h) favorite alerts go out |
 | `FAVORITE_ALERTS_ON_VISIT` | on | Also run the morning check on the first visit after that time |
 | `NTFY_SERVER` | `https://ntfy.sh` | ntfy server for favorite alerts (if you self-host one) |
-| `PUBLIC_URL` | the address the site was reached at | Link opened when an alert is tapped |
+| `PUBLIC_URL` | `RENDER_EXTERNAL_URL` on Render, else the address the site was reached at | Site address used in alert and reset-email links |
+| `BREVO_API_KEY` | (none) | Brevo API key for password reset emails |
+| `MAIL_FROM` | (none) | Sender address verified in Brevo |
+| `MAIL_FROM_NAME` | `Max Alert` | Sender name on reset emails |
 | `DEMO_MODE` | off | `1` forces sample data |
 | `PORT` | `5000` | Port for `python app.py` |
 
@@ -292,15 +313,17 @@ You can also create the tables yourself with `flask --app app init-db`. Starting
 - Log in, sign up and log changes only accept JSON requests, so another website can't submit them on your behalf.
 - Wrong-password messages don't reveal whether an email has an account.
 - After 10 failed logins from one IP in 15 minutes, logins from that IP pause briefly.
+- Login cookies include a stamp of the password, so changing it (with a reset link) logs out every other device.
+- Reset links are signed with `SECRET_KEY`, last 1 hour and work once.
 - Users can only see and change their own meals.
 
 **Before putting it on the internet:**
 - Serve it over HTTPS, set `SECURE_COOKIES=1`, and run it with a real server (e.g. `gunicorn app:app`) instead of `python app.py`.
-- There's no password reset yet, since that needs an email service.
+- Set up Brevo so **Forgot password?** works (see "Turn on password reset emails").
 
 **Importing the old log:** before accounts, logs were saved in `data/logs/<log name>.json`, and the browser remembered the log name. The first time someone logs in on that browser, the app offers to copy that log (and goal) into their account. It asks once per account. An imported file is renamed `...imported-by-<id>.json` so it can't be imported twice.
 
-**Log API** (all need a login): `GET /api/log?date=YYYY-MM-DD`, `POST /api/log/meals`, `PUT` or `DELETE /api/log/meals/<id>`, `PUT /api/log/settings` with `{"goal": 2200}`. Auth: `GET /api/auth/me`, `POST /api/auth/signup|login|logout`.
+**Log API** (all need a login): `GET /api/log?date=YYYY-MM-DD`, `POST /api/log/meals`, `PUT` or `DELETE /api/log/meals/<id>`, `PUT /api/log/settings` with `{"goal": 2200}`. Auth: `GET /api/auth/me`, `POST /api/auth/signup|login|logout`, and for resets `POST /api/auth/forgot` `{"email"}`, `POST /api/auth/reset/check` `{"token"}`, `POST /api/auth/reset` `{"token", "password"}`.
 
 ## Be a good neighbor
 
