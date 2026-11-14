@@ -214,21 +214,48 @@ def dining_hours():
 
 @app.post("/api/summary")
 def ai_summary():
+    """Judge the meal that matters right now: the one being served, or the next one."""
     body = request.get_json(silent=True) or {}
     data = store.snapshot()
-    date = body.get("date") or campus_now().date().isoformat()
-    loc = body.get("location")
+    now = campus_now()
+    cur = current_or_next_meal(data["days"])
+    if not cur["meal"]:
+        return jsonify({"error": "There's no menu posted yet, so there's nothing to judge."}), 404
+    date = cur["date"]
     day = data["days"].get(date, {})
+    loc = body.get("location")
     if loc and loc != "all":
         day = {loc: day.get(loc, [])}
+    meals = meals_on(data["days"], date)
+    upcoming = set(meals[meals.index(cur["meal"]):]) if cur["meal"] in meals else {cur["meal"]}
+    day = {slug: [m for m in ms if m["name"] in upcoming] for slug, ms in day.items()}
     if not any(day.values()):
-        return jsonify({"error": "There's no menu posted for that day yet, so there's nothing to judge."}), 404
+        return jsonify({"error": "There's no menu posted for that location right now."}), 404
+
+    clock = f"It's {now:%-I:%M %p} on {now:%A}."
+    when = cur["label"][:1].lower() + cur["label"][1:]  # "until 2:00 PM", "today 4:30 PM – 7:00 PM"
+    if cur["status"] == "now":
+        situation = f"{clock} {cur['meal']} is being served now, {when}."
+        context = f"{cur['meal']} · serving now"
+    elif date == now.date().isoformat():
+        situation = f"{clock} Nothing's being served this second. Next up is {cur['meal']}, {when}."
+        context = f"{cur['meal']} · up next"
+    else:
+        situation = f"{clock} The MAX is done for today. Next up is {cur['meal']}, {when}."
+        context = f"{cur['meal']} · {cur['label'].split(' ')[0].lower()}"
+    open_now = [l["name"] for l in hours_store.snapshot().get("locations", [])
+                if l["slug"] != MAX_SLUG and hours.status(l, now)["open"]]
+    others = (f"Other campus spots open right now: {', '.join(open_now)}." if open_now
+              else "No other campus dining spots are open right now, so don't send anyone elsewhere.")
     names = {l["slug"]: l["name"] for l in data.get("locations") or []}
+    menu = summary.menu_as_text(day, names)
+    prompt = summary.PROMPT.format(situation=situation, others=others, meal=cur["meal"],
+                                   when=f"{date}, {cur['meal']} and later", menu=menu)
     try:
-        text = summary.summarize(date, summary.menu_as_text(day, names))
+        text = summary.summarize(prompt, [date, cur["meal"], cur["status"], sorted(open_now), menu])
     except summary.SummaryError as e:
         return jsonify({"error": str(e)}), 503
-    return jsonify({"summary": text})
+    return jsonify({"summary": text, "context": context})
 
 
 @app.get("/api/health")

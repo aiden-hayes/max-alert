@@ -1,4 +1,5 @@
-"""The "Anything good?" button: ask Claude for a short, casual take on today's menu."""
+"""The "Anything good?" button: a short, blunt student-style verdict on the meal that
+matters right now (the one being served, or the next one if The MAX is between meals)."""
 from __future__ import annotations
 
 import hashlib
@@ -10,13 +11,29 @@ import config
 
 _cache: dict[str, str] = {}  # menu hash -> summary, so repeat taps are free
 
-PROMPT = """You're a college student texting a friend about what the dining hall at \
-Georgia College (The MAX) has today. Based on the menu below, write 2-3 short, casual \
-sentences on the highlights: what's worth grabbing and at which meal. Mention a good \
-vegetarian/vegan pick if there is one. No lists, no emojis, no headings. Only mention \
-dishes that are actually on the menu.
+PROMPT = """You're a Georgia College student texting your friends a quick verdict on \
+The MAX (the dining hall). Keep it real.
 
-Today's menu ({date}):
+Right now: {situation}
+{others}
+
+How to answer:
+- Talk about the meal that matters right now ({meal}). Only bring up a later meal \
+if it's clearly the better move ("dinner's where it's at").
+- Give a straight verdict. If it's good, hype the one or two best dishes by name. If \
+it's weak (say it's just fish and pork), say so plainly, like "L nibbles today, fade \
+that", and if another campus spot is open right now, point people there.
+- House opinions (always follow these): chicken and beef dishes are good, so a meal \
+with solid chicken or beef is a W and those are the dishes to hype. Mediterranean \
+chicken is the exception: if it's on the menu, call it out as mad dry.
+- Sound like a college student texting: casual and a little funny, with slang like W, \
+L, mid, lock in, fade, bussin, cooked, the move. Don't cram slang into every sentence. \
+Stay friendly: no swearing, no emojis, no hashtags, no lists or headings.
+- 2 to 3 short sentences, under 50 words total.
+- Only name dishes that are on the menu below. A quick vegetarian shout-out is fine \
+if there's a solid one.
+
+Menu ({when}):
 {menu}"""
 
 
@@ -39,10 +56,12 @@ class SummaryError(RuntimeError):
     pass
 
 
-def summarize(date: str, menu_text: str) -> str:
+def summarize(prompt: str, cache_key: list) -> str:
+    """Ask Claude. `cache_key` identifies the menu + meal, so repeat taps during the same
+    meal are free (the clock time in the prompt is left out of it on purpose)."""
     if not config.ANTHROPIC_API_KEY:
         raise SummaryError("The AI summary isn't set up yet (ANTHROPIC_API_KEY is missing).")
-    key = hashlib.sha256(json.dumps([date, menu_text, config.ANTHROPIC_MODEL]).encode()).hexdigest()
+    key = hashlib.sha256(json.dumps([*cache_key, config.ANTHROPIC_MODEL]).encode()).hexdigest()
     if key in _cache:
         return _cache[key]
     try:
@@ -55,8 +74,8 @@ def summarize(date: str, menu_text: str) -> str:
             },
             json={
                 "model": config.ANTHROPIC_MODEL,
-                "max_tokens": 250,
-                "messages": [{"role": "user", "content": PROMPT.format(date=date, menu=menu_text)}],
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}],
             },
             timeout=30,
         )

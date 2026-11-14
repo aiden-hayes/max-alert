@@ -142,6 +142,9 @@ select[hidden] + .good { flex: 1; }
 .ai { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent);
   border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; font-size: .95rem; box-shadow: var(--shadow); }
 .ai.err { border-left-color: #c77700; }
+.ai-k { display: inline-block; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--accent); margin-bottom: 4px; }
+.ai p { margin: 0; }
 
 /* ---------- stations + dishes ---------- */
 .menu-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 12px; }

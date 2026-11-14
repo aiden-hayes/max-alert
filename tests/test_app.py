@@ -809,3 +809,26 @@ def test_login_form_uses_password_manager_names(client):
     assert page.count('autocomplete="username"') >= 4
     assert 'autocomplete="current-password"' in page and 'autocomplete="new-password"' in page
     assert 'passwordrules="minlength: 8' in page
+
+
+def test_anything_good_judges_the_meal_happening_now(tmp_path, monkeypatch):
+    import config
+    import menu_store
+    import summary
+    monkeypatch.setattr(menu_store, "CACHE_FILE", tmp_path / "cache.json")
+    monkeypatch.setattr(config, "DEMO_MODE", True)
+    import app as app_module
+    app_module.store = menu_store.MenuStore()
+    client = app_module.app.test_client()
+    client.get("/api/menus")
+    sent = {}
+    monkeypatch.setattr(summary, "summarize", lambda prompt, key: sent.update(prompt=prompt, key=key) or "W lunch, lock in.")
+    r = client.post("/api/summary", json={})
+    assert r.status_code == 200 and r.get_json()["summary"] == "W lunch, lock in."
+    cur = app_module.current_or_next_meal(app_module.store.snapshot()["days"])
+    assert r.get_json()["context"].startswith(cur["meal"])
+    p = sent["prompt"]
+    assert "mad dry" in p and "chicken and beef" in p
+    assert f"meal that matters right now ({cur['meal']})" in p and "L nibbles today" in p and "It's " in p
+    assert "don't send anyone elsewhere" in p  # hours are stubbed out in tests: nothing else is open
+    assert cur["meal"] in sent["key"]

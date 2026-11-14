@@ -362,16 +362,16 @@ function renderSearch() {
 
 // ---------- AI summary ----------
 async function anythingGood() {
+  // Judges whatever's being served now (or next), not the day picked above.
   const btn = $("good"), box = $("ai");
-  btn.disabled = true; btn.textContent = "Thinking…";
-  box.hidden = false; box.className = "ai"; box.textContent = "Checking out the menu…";
-  const today = state.data.dates[0];
+  btn.disabled = true; btn.textContent = "Checking…";
+  box.hidden = false; box.className = "ai"; box.textContent = "Peeking at the menu…";
   try {
     const res = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: today, location: state.location }) });
+      body: JSON.stringify({ location: state.location }) });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || "Something went wrong.");
-    box.textContent = body.summary;
+    box.innerHTML = (body.context ? `<span class="ai-k">${esc(body.context)}</span>` : "") + `<p>${esc(body.summary)}</p>`;
   } catch (e) {
     box.className = "ai err"; box.textContent = e.message;
   } finally {
